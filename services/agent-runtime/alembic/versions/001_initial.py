@@ -10,7 +10,13 @@ Tables created:
     public.agents
     public.tasks
     public.events
+    public.approvals
     metrics.token_usage
+
+Security:
+    RLS (Row-Level Security) is enabled on companies, roles, agents, tasks,
+    and approvals.  Each policy gates rows on app.current_company_id, which
+    the application layer must set via SET LOCAL before executing queries.
 """
 
 from alembic import op
@@ -279,8 +285,100 @@ def upgrade() -> None:
         schema="metrics",
     )
 
+    # ── approvals ──────────────────────────────────────────────────────────────
+    # Stores human-in-the-loop approval requests raised by agents before they
+    # execute sensitive actions.  Kept in the public schema so RLS applies.
+    op.create_table(
+        "approvals",
+        sa.Column("id", sa.Text(), nullable=False),
+        sa.Column("company_id", sa.Text(), nullable=False),
+        sa.Column("agent_id", sa.Text(), nullable=True),
+        sa.Column("action_type", sa.Text(), nullable=False),
+        sa.Column("action_description", sa.Text(), nullable=True),
+        sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
+        sa.Column(
+            "requested_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column("resolved_at", sa.TIMESTAMP(timezone=True), nullable=True),
+        sa.Column("resolved_by", sa.Text(), nullable=True),
+        sa.Column("metadata", postgresql.JSONB(), nullable=False, server_default="{}"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(["company_id"], ["companies.id"]),
+        sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
+    )
+    op.create_index(
+        "idx_approvals_company_status",
+        "approvals",
+        ["company_id", "status"],
+    )
+    op.create_index(
+        "idx_approvals_agent_id",
+        "approvals",
+        ["agent_id"],
+    )
+
+    # ── Row-Level Security ─────────────────────────────────────────────────────
+    # RLS ensures every query is automatically scoped to the caller's company.
+    # The application layer sets app.current_company_id at connection time via
+    # SET LOCAL so the policy predicate resolves to the correct tenant.
+    #
+    # companies: a row is visible only when its own id matches the session variable.
+    # roles / agents / tasks / approvals: visible only when company_id matches.
+    #
+    # BYPASSRLS is granted to the migration superuser so Alembic itself is not
+    # blocked; the application role must NOT have BYPASSRLS.
+    op.execute("ALTER TABLE companies ENABLE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY company_isolation ON companies
+        USING (id = current_setting('app.current_company_id', true)::text)
+    """)
+
+    op.execute("ALTER TABLE roles ENABLE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY company_isolation ON roles
+        USING (company_id = current_setting('app.current_company_id', true)::text)
+    """)
+
+    op.execute("ALTER TABLE agents ENABLE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY company_isolation ON agents
+        USING (company_id = current_setting('app.current_company_id', true)::text)
+    """)
+
+    op.execute("ALTER TABLE tasks ENABLE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY company_isolation ON tasks
+        USING (company_id = current_setting('app.current_company_id', true)::text)
+    """)
+
+    op.execute("ALTER TABLE approvals ENABLE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY company_isolation ON approvals
+        USING (company_id = current_setting('app.current_company_id', true)::text)
+    """)
+
 
 def downgrade() -> None:
+    # ── Remove RLS policies before dropping tables ─────────────────────────────
+    op.execute("DROP POLICY IF EXISTS company_isolation ON approvals")
+    op.execute("ALTER TABLE approvals DISABLE ROW LEVEL SECURITY")
+
+    op.execute("DROP POLICY IF EXISTS company_isolation ON tasks")
+    op.execute("ALTER TABLE tasks DISABLE ROW LEVEL SECURITY")
+
+    op.execute("DROP POLICY IF EXISTS company_isolation ON agents")
+    op.execute("ALTER TABLE agents DISABLE ROW LEVEL SECURITY")
+
+    op.execute("DROP POLICY IF EXISTS company_isolation ON roles")
+    op.execute("ALTER TABLE roles DISABLE ROW LEVEL SECURITY")
+
+    op.execute("DROP POLICY IF EXISTS company_isolation ON companies")
+    op.execute("ALTER TABLE companies DISABLE ROW LEVEL SECURITY")
+
+    op.drop_table("approvals")
     op.drop_table("token_usage", schema="metrics")
     op.execute("DROP SCHEMA IF EXISTS metrics CASCADE")
     op.drop_table("events")

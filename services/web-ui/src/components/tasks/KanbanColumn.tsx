@@ -15,7 +15,9 @@ interface KanbanColumnProps {
   isDropTarget: boolean;
 }
 
-// Column accent colors by status — visually distinct at a glance
+// Column accent colors by status — visually distinct at a glance.
+// `cancelled` is included to satisfy the full TaskStatus record type even
+// though the KanbanBoard never renders a Cancelled column.
 const columnColors: Record<TaskStatus, { header: string; count: string }> = {
   backlog: {
     header: 'text-text-muted',
@@ -36,6 +38,10 @@ const columnColors: Record<TaskStatus, { header: string; count: string }> = {
   done: {
     header: 'text-status-active',
     count: 'bg-status-active/10 text-status-active',
+  },
+  cancelled: {
+    header: 'text-status-stopped',
+    count: 'bg-status-stopped/10 text-status-stopped',
   },
 };
 

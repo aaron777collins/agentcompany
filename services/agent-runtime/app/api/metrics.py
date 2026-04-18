@@ -10,10 +10,71 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select, text
 
-from app.dependencies import DBSession, OrgMember
+from app.dependencies import DBSession, OrgAdmin, OrgMember
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/platform", summary="Platform-wide aggregate stats")
+async def platform_stats(
+    db: DBSession,
+    claims: OrgAdmin,
+) -> dict:
+    """Return platform-wide aggregates for the dashboard overview panel.
+
+    Scoped to the caller's org so multi-tenant deployments stay isolated.
+    Active agents are those whose status is 'active' or 'starting'.
+    """
+    # Run independent aggregates in a single round-trip via CTEs rather than
+    # issuing four separate queries.
+    sql = text("""
+        WITH
+        company_count AS (
+            SELECT COUNT(*) AS n
+            FROM companies
+            WHERE org_id = :org_id AND deleted_at IS NULL
+        ),
+        agent_counts AS (
+            SELECT
+                COUNT(*)                                           AS total_agents,
+                COUNT(*) FILTER (WHERE status IN ('active', 'starting')) AS active_agents
+            FROM agents
+            WHERE org_id = :org_id AND deleted_at IS NULL
+        ),
+        task_count AS (
+            SELECT COUNT(*) AS n
+            FROM tasks
+            WHERE org_id = :org_id AND deleted_at IS NULL
+        ),
+        token_totals AS (
+            SELECT
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cost_usd), 0)     AS total_cost_usd
+            FROM metrics.token_usage
+            WHERE org_id = :org_id
+        )
+        SELECT
+            (SELECT n FROM company_count)       AS total_companies,
+            (SELECT total_agents FROM agent_counts) AS total_agents,
+            (SELECT active_agents FROM agent_counts) AS active_agents,
+            (SELECT n FROM task_count)          AS total_tasks,
+            (SELECT total_tokens FROM token_totals) AS total_tokens,
+            (SELECT total_cost_usd FROM token_totals) AS total_cost_usd
+    """)
+
+    row = (await db.execute(sql, {"org_id": claims.org_id})).one()
+
+    return {
+        "data": {
+            "total_companies": row.total_companies or 0,
+            "total_agents": row.total_agents or 0,
+            "active_agents": row.active_agents or 0,
+            "total_tasks": row.total_tasks or 0,
+            "total_tokens": row.total_tokens or 0,
+            "total_cost_usd": float(row.total_cost_usd or 0),
+        }
+    }
 
 
 @router.get("/tokens", summary="Token usage stats")

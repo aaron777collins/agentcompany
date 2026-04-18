@@ -39,7 +39,7 @@ async def create_task(
         parent_task_id=body.parent_task_id,
         metadata_=body.metadata,
         created_by=claims.sub,
-        status="open",
+        status="backlog",
     )
     db.add(task)
     await db.flush()

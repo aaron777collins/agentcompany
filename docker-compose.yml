@@ -388,7 +388,7 @@ services:
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY}
       KEYCLOAK_URL: http://keycloak:8080/auth
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-agentcompany}
-      KEYCLOAK_CLIENT_ID: ${AGENT_RUNTIME_KEYCLOAK_CLIENT_ID:-agent-runtime}
+      KEYCLOAK_CLIENT_ID: ${AGENT_RUNTIME_KEYCLOAK_CLIENT_ID:-agentcompany-api}
       KEYCLOAK_CLIENT_SECRET: ${AGENT_RUNTIME_KEYCLOAK_CLIENT_SECRET:-}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -430,7 +430,7 @@ services:
       NEXT_PUBLIC_API_URL: ${WEB_UI_API_URL:-http://localhost/api}
       NEXT_PUBLIC_KEYCLOAK_URL: ${KEYCLOAK_HOSTNAME:-http://localhost}/auth
       NEXT_PUBLIC_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-agentcompany}
-      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${WEB_UI_KEYCLOAK_CLIENT_ID:-web-ui}
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${WEB_UI_KEYCLOAK_CLIENT_ID:-agentcompany-web}
       NODE_ENV: ${APP_ENV:-development}
     depends_on:
       agent-runtime:

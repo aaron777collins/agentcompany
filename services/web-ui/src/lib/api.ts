@@ -9,6 +9,7 @@
  * endpoint groups more effectively with named exports.
  */
 
+import { getToken, login, AUTH_ENABLED } from './auth';
 import type {
   Agent,
   AgentMemory,
@@ -51,18 +52,40 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
 
+  // Attach the Bearer token when auth is configured. In bare dev environments
+  // (AUTH_ENABLED = false) getToken() returns null and we skip the header so
+  // the app remains usable without a running Keycloak instance.
+  const authHeaders: HeadersInit = {};
+  if (AUTH_ENABLED) {
+    const token = await getToken();
+    if (token) {
+      authHeaders['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
   const res = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      // JWT is stored in a cookie by the SSO integration; include credentials
-      // so the browser sends it automatically. Change to Bearer header when
-      // Keycloak integration is wired (tracked in issue #42).
+      ...authHeaders,
       ...options.headers,
     },
+    // Credentials are still included for any cookie-based fallback (e.g., dev
+    // proxy), but the primary auth path is the Bearer header above.
     credentials: 'include',
   });
+
+  // A 401 with auth enabled means the token is invalid or the session has
+  // expired in a way that the refresh-token path could not recover from.
+  // Redirect to login so the user gets a fresh session rather than seeing
+  // a confusing empty UI.
+  if (res.status === 401 && AUTH_ENABLED) {
+    await login();
+    // login() redirects the browser; this line is unreachable but satisfies
+    // TypeScript's control-flow analysis.
+    throw new ApiClientError(401, 'UNAUTHORIZED', 'Session expired — redirecting to login');
+  }
 
   if (!res.ok) {
     let errorBody: Record<string, unknown> = {};

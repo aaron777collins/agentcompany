@@ -25,8 +25,9 @@ class Task(Base, TimestampMixin):
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # "open" | "in_progress" | "blocked" | "review" | "done" | "cancelled"
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
+    # "backlog" | "todo" | "in_progress" | "review" | "done" | "cancelled"
+    # Values match the frontend kanban board column identifiers exactly.
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="backlog")
     # "urgent" | "high" | "medium" | "low"
     priority: Mapped[str] = mapped_column(Text, nullable=False, default="medium")
     # Either an agent ID or a user ID

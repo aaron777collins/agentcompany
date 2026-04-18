@@ -6,6 +6,7 @@ Meilisearch — the client never has direct access to the search index.
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -18,6 +19,42 @@ from app.schemas.common import DataResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Only these keys may appear in caller-supplied filter dicts.  Any other key
+# is rejected outright — never forward unknown keys to Meilisearch.
+_ALLOWED_FILTER_KEYS = frozenset({"status", "priority", "source", "assignee"})
+
+# Characters/tokens that would allow a caller to escape a filter value and
+# inject arbitrary filter logic into the Meilisearch expression.
+_FORBIDDEN_VALUE_PATTERN = re.compile(
+    r"\b(OR|AND|NOT|TO)\b|[=!<>()\"]", re.IGNORECASE
+)
+
+
+def _validate_filter_key(key: str) -> None:
+    """Reject filter keys that are not on the explicit whitelist."""
+    if key not in _ALLOWED_FILTER_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Filter key '{key}' is not allowed. "
+                f"Permitted keys: {sorted(_ALLOWED_FILTER_KEYS)}"
+            ),
+        )
+
+
+def _validate_filter_value(key: str, value: Any) -> str:
+    """Coerce value to string and reject patterns that could inject filter logic."""
+    str_value = str(value)
+    if _FORBIDDEN_VALUE_PATTERN.search(str_value):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Filter value for '{key}' contains disallowed characters or keywords. "
+                "Values must not contain: OR, AND, NOT, TO, =, !=, >, <, (, ), \""
+            ),
+        )
+    return str_value
 
 
 class SearchRequest(BaseModel):
@@ -55,11 +92,18 @@ async def search(
     # Map scope to Meilisearch index names
     index_names = _scope_to_indices(body.scope)
 
-    # Enforce tenant isolation: always include company_id in the filter
-    meili_filter = f"company_id = {body.company_id}"
+    # Enforce tenant isolation: always include company_id in the filter.
+    # company_id comes from the validated request body (not user-supplied filter
+    # dict) and is quoted to prevent injection even if it contains special chars.
+    sanitized_company_id = _validate_filter_value("company_id", body.company_id)
+    meili_filter = f'company_id = "{sanitized_company_id}"'
+
     if body.filters:
         for key, value in body.filters.items():
-            meili_filter += f" AND {key} = {value}"
+            # Whitelist key and sanitize value before building the expression.
+            _validate_filter_key(key)
+            safe_value = _validate_filter_value(key, value)
+            meili_filter += f' AND {key} = "{safe_value}"'
 
     all_hits: list[dict] = []
     total = 0

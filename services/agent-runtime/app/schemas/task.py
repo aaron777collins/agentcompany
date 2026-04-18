@@ -25,7 +25,9 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=50000)
-    status: Literal["open", "in_progress", "blocked", "review", "done", "cancelled"] | None = (
+    # Values must match the frontend kanban board column identifiers.
+    # "open" and "blocked" were removed; "backlog" and "todo" were added.
+    status: Literal["backlog", "todo", "in_progress", "review", "done", "cancelled"] | None = (
         None
     )
     priority: Literal["urgent", "high", "medium", "low"] | None = None

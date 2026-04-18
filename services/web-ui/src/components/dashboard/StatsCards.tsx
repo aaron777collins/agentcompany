@@ -1,5 +1,5 @@
 import React from 'react';
-import { cx, formatTokens, formatCost, formatPercent } from '@/lib/utils';
+import { cx, formatTokens, formatCost } from '@/lib/utils';
 import { SkeletonBlock } from '@/components/ui/Spinner';
 import type { PlatformMetrics } from '@/lib/types';
 
@@ -59,10 +59,6 @@ const StatsCards: React.FC<StatsCardsProps> = ({ metrics, loading }) => {
 
   if (!metrics) return null;
 
-  const budgetPercent = metrics.monthly_budget_usd > 0
-    ? formatPercent((metrics.monthly_cost_usd / metrics.monthly_budget_usd) * 100, 0)
-    : '—';
-
   const cards: StatCardProps[] = [
     {
       title: 'Active Agents',
@@ -77,9 +73,9 @@ const StatsCards: React.FC<StatsCardsProps> = ({ metrics, loading }) => {
       accentColor: 'text-status-active',
     },
     {
-      title: 'Tasks Completed Today',
-      value: `${metrics.tasks_completed_today}`,
-      subtext: `${metrics.total_tasks_in_progress} in progress`,
+      title: 'Total Tasks',
+      value: `${metrics.total_tasks}`,
+      subtext: `across ${metrics.total_companies} ${metrics.total_companies === 1 ? 'company' : 'companies'}`,
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -89,8 +85,8 @@ const StatsCards: React.FC<StatsCardsProps> = ({ metrics, loading }) => {
       accentColor: 'text-accent',
     },
     {
-      title: 'Token Usage Today',
-      value: formatTokens(metrics.token_usage_today),
+      title: 'Token Usage',
+      value: formatTokens(metrics.total_token_usage),
       subtext: 'tokens across all agents',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -101,9 +97,9 @@ const StatsCards: React.FC<StatsCardsProps> = ({ metrics, loading }) => {
       accentColor: 'text-status-idle',
     },
     {
-      title: 'Monthly Cost',
-      value: formatCost(metrics.monthly_cost_usd),
-      subtext: `${budgetPercent} of budget`,
+      title: 'Total Cost',
+      value: formatCost(metrics.total_cost_usd),
+      subtext: 'cumulative spend',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}

@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 export type AgentStatus = 'active' | 'idle' | 'error' | 'stopped' | 'pending';
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 export type TriggerMode = 'event' | 'schedule' | 'manual';
 export type LLMProvider = 'openai' | 'anthropic' | 'ollama';
@@ -193,13 +193,12 @@ export interface AgentTokenUsage {
 }
 
 export interface PlatformMetrics {
-  active_agents: number;
+  total_companies: number;
   total_agents: number;
-  tasks_completed_today: number;
-  total_tasks_in_progress: number;
-  token_usage_today: number;
-  monthly_cost_usd: number;
-  monthly_budget_usd: number;
+  active_agents: number;
+  total_tasks: number;
+  total_token_usage: number;
+  total_cost_usd: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -55,10 +55,18 @@ class DataResponse(BaseModel, Generic[T]):
 
 
 class ListResponse(BaseModel, Generic[T]):
-    """Paginated list response envelope."""
+    """Paginated list response envelope.
 
-    data: list[T]
-    meta: ListMeta
+    Shape matches what the frontend expects:
+        { items, total, page, page_size, has_next }
+    Page is 1-based to align with typical UI pagination controls.
+    """
+
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+    has_next: bool
 
 
 class CursorResponse(BaseModel, Generic[T]):
@@ -86,20 +94,19 @@ def make_list_response(
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
-    """Build a ListResponse-compatible dict for use in route handlers."""
-    has_more = (offset + limit) < total
+    """Build a ListResponse-compatible dict for use in route handlers.
+
+    Returns the flat shape the frontend expects:
+        { items, total, page, page_size, has_next }
+
+    Page is derived from offset/limit and is 1-based.
+    """
+    page = (offset // limit) + 1 if limit > 0 else 1
+    has_next = (offset + limit) < total
     return {
-        "data": items,
-        "meta": {
-            "request_id": _new_request_id(),
-            "timestamp": _now_iso(),
-            "version": "1.0.0",
-            "pagination": {
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-                "has_more": has_more,
-                "next_offset": offset + limit if has_more else None,
-            },
-        },
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": limit,
+        "has_next": has_next,
     }

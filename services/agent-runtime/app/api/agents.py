@@ -198,6 +198,17 @@ async def start_agent(
     agent.version += 1
     await db.flush()
 
+    # TODO(ticket: AC-ENGINE-01): Dispatch to the AgentManager so the engine
+    # actually activates the agent loop.  Once the engine is wired into
+    # app.state during lifespan startup, replace the block below with:
+    #
+    #   from app.engine.agent_manager import AgentManager
+    #   manager: AgentManager = request.app.state.agent_manager
+    #   await manager.activate(agent_id, triggered_by=claims.sub)
+    #
+    # The AgentManager.activate() call registers the heartbeat service and
+    # transitions the DB state from CONFIGURED -> ACTIVE via _transition().
+
     logger.info("Agent start requested: %s", agent_id)
     return {
         "data": {
@@ -260,6 +271,23 @@ async def trigger_agent(
 
     agent.last_active_at = datetime.now(timezone.utc)
     await db.flush()
+
+    # TODO(ticket: AC-ENGINE-01): Dispatch the trigger to the AgentManager so
+    # the engine runs the decision loop for this specific task.  Example:
+    #
+    #   from app.engine.agent_manager import AgentManager
+    #   manager: AgentManager = request.app.state.agent_manager
+    #   await manager.mark_running(agent_id, run_id=f"trigger_{body.task_id}")
+    #
+    # The AgentManager.mark_running() call transitions ACTIVE -> RUNNING so
+    # the agent loop knows a run is in flight.  The agent loop itself should
+    # be dispatched via the event bus so it executes in its own task:
+    #
+    #   await request.app.state.event_bus.publish(
+    #       agent.company_id,
+    #       {"type": "agent.trigger", "agent_id": agent_id, "task_id": body.task_id,
+    #        "priority": body.priority, "context": body.context},
+    #   )
 
     logger.info(
         "Agent manually triggered: %s (task=%s, priority=%s)",

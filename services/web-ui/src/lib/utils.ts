@@ -130,6 +130,7 @@ export const taskStatusLabels: Record<TaskStatus, string> = {
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',
+  cancelled: 'Cancelled',
 };
 
 export const taskPriorityColors: Record<TaskPriority, string> = {

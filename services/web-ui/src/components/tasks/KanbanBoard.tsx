@@ -11,8 +11,16 @@ interface KanbanBoardProps {
 
 const COLUMN_ORDER: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
+// Cancelled tasks are intentionally excluded from the board — they are a
+// terminal state and cluttering active columns with them harms readability.
+// They remain accessible via the tasks API list endpoint with status filter.
+const BOARD_STATUSES = new Set<TaskStatus>(COLUMN_ORDER);
+
 const KanbanBoard: React.FC<KanbanBoardProps> = ({ initialTasks }) => {
-  const [taskList, setTaskList] = useState<Task[]>(initialTasks);
+  // Strip cancelled tasks on mount; they are terminal and live outside the board
+  const [taskList, setTaskList] = useState<Task[]>(
+    initialTasks.filter((t) => BOARD_STATUSES.has(t.status)),
+  );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetStatus, setDropTargetStatus] = useState<TaskStatus | null>(null);
 

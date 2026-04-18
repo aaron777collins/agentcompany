@@ -37,13 +37,20 @@ async def plane_webhook(
     body = await request.body()
     settings = get_settings()
 
-    if settings.webhook_secret_plane:
-        _verify_hmac(
-            secret=settings.webhook_secret_plane,
-            body=body,
-            signature=x_plane_signature,
-            header_name="X-Plane-Signature",
+    # Refuse requests entirely when the secret is not configured — silently
+    # accepting unverified payloads would allow arbitrary event injection.
+    if not settings.webhook_secret_plane:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Plane webhook secret is not configured on this server",
         )
+
+    _verify_hmac(
+        secret=settings.webhook_secret_plane,
+        body=body,
+        signature=x_plane_signature,
+        header_name="X-Plane-Signature",
+    )
 
     try:
         payload: dict[str, Any] = await request.json()
@@ -72,13 +79,20 @@ async def outline_webhook(
     body = await request.body()
     settings = get_settings()
 
-    if settings.webhook_secret_outline:
-        _verify_hmac(
-            secret=settings.webhook_secret_outline,
-            body=body,
-            signature=x_outline_signature,
-            header_name="X-Outline-Signature",
+    # Refuse requests entirely when the secret is not configured — same
+    # reasoning as the Plane handler above.
+    if not settings.webhook_secret_outline:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Outline webhook secret is not configured on this server",
         )
+
+    _verify_hmac(
+        secret=settings.webhook_secret_outline,
+        body=body,
+        signature=x_outline_signature,
+        header_name="X-Outline-Signature",
+    )
 
     try:
         payload = await request.json()
@@ -108,6 +122,14 @@ async def mattermost_webhook(
     """
     settings = get_settings()
 
+    # Refuse requests entirely when the secret is not configured — same
+    # reasoning as the Plane handler above.
+    if not settings.webhook_secret_mattermost:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Mattermost webhook secret is not configured on this server",
+        )
+
     try:
         payload = await request.json()
     except Exception as exc:
@@ -117,15 +139,14 @@ async def mattermost_webhook(
         ) from exc
 
     # Mattermost puts the token in the body for outgoing webhooks
-    if settings.webhook_secret_mattermost:
-        token = payload.get("token", "")
-        if not hmac.compare_digest(
-            token.encode(), settings.webhook_secret_mattermost.encode()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid Mattermost webhook token",
-            )
+    token = payload.get("token", "")
+    if not hmac.compare_digest(
+        token.encode(), settings.webhook_secret_mattermost.encode()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Mattermost webhook token",
+        )
 
     event_type = payload.get("event", "message.posted")
     logger.info("Mattermost webhook received: event=%s", event_type)

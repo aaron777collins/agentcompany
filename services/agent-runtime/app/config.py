@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # ── Keycloak ───────────────────────────────────────────────────────────────
     keycloak_url: str = "http://keycloak:8080/auth"
     keycloak_realm: str = "agentcompany"
-    keycloak_client_id: str = "agent-runtime"
+    keycloak_client_id: str = "agentcompany-api"
     keycloak_client_secret: str = ""
 
     # ── Meilisearch ────────────────────────────────────────────────────────────
