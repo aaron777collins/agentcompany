@@ -1,0 +1,125 @@
+name: Publish Docker images
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Only one publish job runs at a time per tag to prevent race conditions
+# between parallel matrix jobs writing the same manifest to ghcr.io.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  # Images are published under the repository owner's namespace so forks
+  # publish to their own registry without conflicting with upstream.
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    name: Build and push ${{ matrix.service.name }}
+    runs-on: ubuntu-24.04
+
+    # Required for pushing to ghcr.io with GITHUB_TOKEN.
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      # Build both images in parallel; a failure in one doesn't cancel the other
+      # so we can see all errors in one run.
+      fail-fast: false
+      matrix:
+        service:
+          - name: agent-runtime
+            context: services/agent-runtime
+            image: agentcompany-agent-runtime
+          - name: web-ui
+            context: services/web-ui
+            image: agentcompany-web-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # QEMU enables cross-compilation for the arm64 target on the amd64 runner.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derive tags from the git ref:
+      #   v1.2.3 → :1.2.3 + :1.2 + :1 + :latest
+      # The `type=semver` patterns follow the OCI image spec recommendation.
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/tags/{0}', github.ref_name) }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          # Build both architectures in one manifest so end-users get the right
+          # image automatically regardless of their host platform.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GitHub Actions cache backend is scoped per branch/tag so parallel
+          # jobs don't stomp on each other's cache entries.
+          cache-from: type=gha,scope=${{ matrix.service.name }}-publish
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-publish
+
+  # ---------------------------------------------------------------------------
+  # After both images are pushed, create a GitHub Release with the image URLs
+  # so the changelog clearly links the tag to the published artifacts.
+  # ---------------------------------------------------------------------------
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs: build-and-push
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          gh release create "${VERSION}" \
+            --title "AgentCompany ${VERSION}" \
+            --generate-notes \
+            --notes "## Docker images
+
+          Images published to GitHub Container Registry:
+
+          \`\`\`
+          docker pull ${{ env.IMAGE_PREFIX }}/agentcompany-agent-runtime:${VERSION}
+          docker pull ${{ env.IMAGE_PREFIX }}/agentcompany-web-ui:${VERSION}
+          \`\`\`
+
+          Multi-arch: \`linux/amd64\` and \`linux/arm64\`"

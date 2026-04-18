@@ -1,0 +1,224 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch so a force-push doesn't queue
+# up multiple redundant builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Python linting — ruff covers formatting, import order, and style
+  # ---------------------------------------------------------------------------
+  lint-backend:
+    name: Lint backend (ruff)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/agent-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-lint-${{ hashFiles('services/agent-runtime/requirements.txt', 'services/agent-runtime/pyproject.toml') }}
+          restore-keys: pip-lint-
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check .
+
+      - name: Run ruff format check
+        run: ruff format --check .
+
+  # ---------------------------------------------------------------------------
+  # TypeScript / ESLint for the Next.js frontend
+  # ---------------------------------------------------------------------------
+  lint-frontend:
+    name: Lint frontend (ESLint + tsc)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/web-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/web-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: TypeScript type check
+        run: npm run type-check
+
+  # ---------------------------------------------------------------------------
+  # Backend tests — pytest with a live PostgreSQL service container so tests
+  # can run real queries without mocking the database layer.
+  # ---------------------------------------------------------------------------
+  test-backend:
+    name: Test backend (pytest)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/agent-runtime
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentcompany_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: agentcompany_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentcompany_test -d agentcompany_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://agentcompany_test:test_password@localhost:5432/agentcompany_test
+      REDIS_URL: redis://localhost:6379
+      APP_ENV: test
+      SECRET_KEY: ci-test-secret-key-not-for-production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-test-${{ hashFiles('services/agent-runtime/requirements.txt', 'services/agent-runtime/pyproject.toml') }}
+          restore-keys: pip-test-
+
+      - name: Install dependencies + dev extras
+        run: |
+          pip install uv
+          uv venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run pytest
+        run: |
+          .venv/bin/pytest \
+            --tb=short \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            -q
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: services/agent-runtime/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # Frontend build check — catches TypeScript errors and build-time issues
+  # that ESLint alone won't catch.
+  # ---------------------------------------------------------------------------
+  test-frontend:
+    name: Test frontend (next build)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/web-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/web-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js app
+        run: npm run build
+        env:
+          # Provide placeholder values so the build doesn't fail on missing
+          # required env vars — real values are injected at runtime.
+          NEXT_PUBLIC_API_URL: http://localhost/api
+          NEXT_PUBLIC_KEYCLOAK_URL: http://localhost/auth
+          NEXT_PUBLIC_KEYCLOAK_REALM: agentcompany
+          NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: agentcompany-web
+
+  # ---------------------------------------------------------------------------
+  # Docker build validation — builds both custom images to catch Dockerfile
+  # errors and missing COPY targets before they reach a release tag.
+  # Images are NOT pushed here; that happens in docker-publish.yml on tag push.
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Docker build (${{ matrix.service }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        service:
+          - name: agent-runtime
+            context: services/agent-runtime
+          - name: web-ui
+            context: services/web-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          push: false
+          # Layer cache scoped to this service so unrelated changes don't
+          # bust the cache for other services.
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+          tags: agentcompany/${{ matrix.service.name }}:ci-${{ github.sha }}

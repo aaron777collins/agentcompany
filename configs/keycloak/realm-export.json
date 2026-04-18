@@ -1,0 +1,298 @@
+{
+  "realm": "agentcompany",
+  "displayName": "AgentCompany",
+  "displayNameHtml": "<b>AgentCompany</b>",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+
+  "accessTokenLifespan": 900,
+  "ssoSessionMaxLifespan": 1800,
+  "ssoSessionIdleTimeout": 1800,
+  "offlineSessionMaxLifespan": 5184000,
+  "offlineSessionIdleTimeout": 2592000,
+
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Platform administrator — full access to all resources",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "user",
+        "description": "Standard human user — can interact with all platform services",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "agent",
+        "description": "Agent identity — used by the agent-runtime service account for machine-to-machine auth",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+
+  "groups": [
+    {
+      "name": "admins",
+      "realmRoles": ["admin", "user"]
+    },
+    {
+      "name": "users",
+      "realmRoles": ["user"]
+    },
+    {
+      "name": "agents",
+      "realmRoles": ["agent"]
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "agentcompany-web",
+      "name": "AgentCompany Web UI",
+      "description": "Public PKCE client for the Next.js frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost/app/*",
+        "http://localhost:3000/*",
+        "https://agentcompany.example.com/app/*"
+      ],
+      "webOrigins": [
+        "http://localhost",
+        "http://localhost:3000",
+        "https://agentcompany.example.com"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost/app/*##http://localhost:3000/*"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "email",
+        "openid"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "phone",
+        "offline_access",
+        "microprofile-jwt"
+      ]
+    },
+    {
+      "clientId": "agentcompany-api",
+      "name": "AgentCompany API (Agent Runtime)",
+      "description": "Confidential client for the agent-runtime service; holds a service account used for machine-to-machine calls",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "CHANGE_ME_AGENT_API_SECRET",
+      "protocol": "openid-connect",
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "access.token.lifespan": "900"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "offline_access",
+        "microprofile-jwt"
+      ]
+    },
+    {
+      "clientId": "agent-service",
+      "name": "Agent Service",
+      "description": "Confidential client for agent-to-tool authentication; each agent obtains a token scoped to its allowed tools",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "CHANGE_ME_AGENT_SERVICE_SECRET",
+      "protocol": "openid-connect",
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "access.token.lifespan": "900"
+      },
+      "authorizationSettings": {
+        "allowRemoteResourceManagement": true,
+        "policyEnforcementMode": "ENFORCING",
+        "resources": [
+          {
+            "name": "tool:search",
+            "displayName": "Search Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/search"]
+          },
+          {
+            "name": "tool:chat",
+            "displayName": "Chat Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/chat"]
+          },
+          {
+            "name": "tool:project",
+            "displayName": "Project Management Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/project"]
+          },
+          {
+            "name": "tool:documentation",
+            "displayName": "Documentation Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/documentation"]
+          },
+          {
+            "name": "tool:analytics",
+            "displayName": "Analytics Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/analytics"]
+          },
+          {
+            "name": "tool:code",
+            "displayName": "Code Execution Tool",
+            "type": "urn:agent-service:resources:tool",
+            "uris": ["/tools/code"]
+          }
+        ],
+        "policies": [
+          {
+            "name": "agent-role-policy",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"agent\",\"required\":true}]"
+            }
+          }
+        ],
+        "decisionStrategy": "UNANIMOUS"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "offline_access",
+        "microprofile-jwt"
+      ]
+    },
+    {
+      "clientId": "outline",
+      "name": "Outline Wiki",
+      "description": "OIDC client for the Outline documentation wiki",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "CHANGE_ME_OUTLINE_SECRET",
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost/docs/auth/oidc.callback",
+        "https://agentcompany.example.com/docs/auth/oidc.callback"
+      ],
+      "webOrigins": [
+        "http://localhost",
+        "https://agentcompany.example.com"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "email",
+        "openid"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "admin",
+      "email": "admin@agentcompany.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin",
+          "temporary": true
+        }
+      ],
+      "realmRoles": ["admin", "user"],
+      "groups": ["/admins"]
+    }
+  ],
+
+  "browserSecurityHeaders": {
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+    "xContentTypeOptions": "nosniff",
+    "xRobotsTag": "none",
+    "xFrameOptions": "SAMEORIGIN",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+  },
+
+  "smtpServer": {
+    "host": "",
+    "port": "587",
+    "from": "noreply@agentcompany.local",
+    "fromDisplayName": "AgentCompany",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "false"
+  },
+
+  "loginTheme": "keycloak",
+  "accountTheme": "keycloak.v3",
+  "adminTheme": "keycloak",
+  "emailTheme": "keycloak",
+
+  "internationalizationEnabled": false,
+  "supportedLocales": ["en"],
+  "defaultLocale": "en"
+}

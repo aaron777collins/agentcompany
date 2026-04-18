@@ -1,0 +1,128 @@
+# Traefik dynamic configuration
+#
+# Traefik watches this file and reloads routes without a restart.
+# Docker-label-based routes (defined in docker-compose.yml) are merged
+# with these file-based routes automatically.
+#
+# This file is useful for:
+#   - Routes to services that are NOT managed by docker-compose
+#     (e.g. the Plane deployment running in its own compose stack)
+#   - Shared middlewares referenced by multiple routers
+#   - TLS options
+
+http:
+
+  ###########################################################################
+  # Middlewares — reusable building blocks
+  ###########################################################################
+  middlewares:
+
+    # Compress responses (gzip) for all text content types
+    compress:
+      compress: {}
+
+    # Security headers applied to every response
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          Server: ""   # hide server identity
+
+    # Rate-limit middleware — protects public endpoints
+    rate-limit:
+      rateLimit:
+        average: 100   # requests per second (sliding window)
+        burst: 50
+
+    # Strip /app prefix before forwarding to Next.js
+    strip-app-prefix:
+      stripPrefix:
+        prefixes:
+          - "/app"
+
+    # Strip /api prefix before forwarding to agent-runtime
+    strip-api-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api"
+
+    # Strip /docs prefix before forwarding to Outline
+    strip-docs-prefix:
+      stripPrefix:
+        prefixes:
+          - "/docs"
+
+    # Strip /chat prefix before forwarding to Mattermost
+    strip-chat-prefix:
+      stripPrefix:
+        prefixes:
+          - "/chat"
+
+    # Strip /search prefix before forwarding to Meilisearch
+    strip-search-prefix:
+      stripPrefix:
+        prefixes:
+          - "/search"
+
+  ###########################################################################
+  # Routers and services for externally-managed deployments
+  ###########################################################################
+  routers:
+
+    # -------------------------------------------------------------------------
+    # Plane — project management
+    # Route to the Plane web container.  Assumes it is reachable at
+    # plane-web:3000 on the agentcompany_external Docker network.
+    # This router is disabled until the Plane deployment is active.
+    # -------------------------------------------------------------------------
+    plane:
+      # Uncomment rule and service once Plane is deployed:
+      # rule: "PathPrefix(`/plane`)"
+      # service: plane-svc
+      # middlewares:
+      #   - strip-plane-prefix
+      #   - compress
+      #   - security-headers
+      rule: "PathPrefix(`/plane`) && HeadersRegexp(`X-Plane-Enabled`, `true`)"
+      service: plane-svc
+      middlewares:
+        - compress
+        - security-headers
+
+  services:
+
+    # -------------------------------------------------------------------------
+    # Plane service definition — update the URL when Plane is running
+    # -------------------------------------------------------------------------
+    plane-svc:
+      loadBalancer:
+        servers:
+          - url: "http://plane-web:3000"   # replace with actual Plane web container name/IP
+        healthCheck:
+          path: "/"
+          interval: "30s"
+          timeout: "5s"
+
+  ###########################################################################
+  # Global middleware chains applied to all routers (optional)
+  ###########################################################################
+  # To apply security-headers + compress to every route, attach them
+  # via entryPoint-level middleware chains in traefik.yml instead of
+  # repeating them on every router.
+
+tls:
+  ###########################################################################
+  # TLS options
+  ###########################################################################
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+      sniStrict: false   # set to true when all clients send SNI

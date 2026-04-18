@@ -1,0 +1,88 @@
+# Traefik static configuration
+#
+# This file is mounted read-only into the Traefik container.
+# Changes here require a container restart to take effect.
+# Route-level configuration lives in dynamic.yml which Traefik
+# watches and reloads without a restart.
+
+###############################################################################
+# Global
+###############################################################################
+global:
+  checkNewVersion: false   # disable phone-home in air-gapped / prod environments
+  sendAnonymousUsage: false
+
+###############################################################################
+# API and dashboard
+#
+# The dashboard is useful during development.  In production either disable it
+# or place it behind authentication middleware.
+###############################################################################
+api:
+  dashboard: true
+  insecure: true   # exposes dashboard on :8080 without auth — restrict in prod
+
+###############################################################################
+# Ping — used by the container health check
+###############################################################################
+ping: {}
+
+###############################################################################
+# Logging
+###############################################################################
+log:
+  level: INFO   # DEBUG | INFO | WARN | ERROR | FATAL | PANIC
+
+accessLog:
+  # Log every request; swap for a file path in production
+  bufferingSize: 100
+
+###############################################################################
+# Entrypoints
+###############################################################################
+entryPoints:
+  web:
+    address: ":80"
+    # Uncomment to enable automatic HTTPS redirect in production:
+    # http:
+    #   redirections:
+    #     entryPoint:
+    #       to: websecure
+    #       scheme: https
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        # Uses Let's Encrypt when a resolver is configured; falls back to
+        # the self-signed cert generated at startup otherwise.
+        certResolver: letsencrypt
+
+###############################################################################
+# Certificate resolvers (ACME / Let's Encrypt)
+#
+# Disabled by default — uncomment and set your email to enable.
+###############################################################################
+# certificatesResolvers:
+#   letsencrypt:
+#     acme:
+#       email: ops@agentcompany.example.com
+#       storage: /certs/acme.json
+#       httpChallenge:
+#         entryPoint: web
+
+###############################################################################
+# Providers
+###############################################################################
+providers:
+  # Docker provider — auto-discovers services from container labels
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false   # only route containers that have traefik.enable=true
+    network: agentcompany_external
+    watch: true
+
+  # File provider — loads dynamic.yml for manually-defined routes
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true

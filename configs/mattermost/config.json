@@ -1,0 +1,236 @@
+{
+  "ServiceSettings": {
+    "SiteURL": "${MM_SERVICESETTINGS_SITEURL}",
+    "ListenAddress": ":8065",
+    "ConnectionSecurity": "",
+    "TLSCertFile": "",
+    "TLSKeyFile": "",
+    "ReadTimeout": 300,
+    "WriteTimeout": 300,
+    "MaximumLoginAttempts": 10,
+    "Forward80To443": false,
+    "EnableDeveloper": false,
+    "EnableTesting": false,
+    "EnableAPIv3": false,
+    "EnableIncomingWebhooks": true,
+    "EnableOutgoingWebhooks": true,
+    "EnableCommands": true,
+    "EnablePostUsernameOverride": true,
+    "EnablePostIconOverride": true,
+    "EnableBotAccountCreation": true,
+    "EnableUserAccessTokens": true,
+    "EnableOAuthServiceProvider": true,
+    "EnableMultifactorAuthentication": false,
+    "EnforceMultifactorAuthentication": false,
+    "EnableEmailInvitations": false,
+    "EnableAPIUserDeletion": false,
+    "EnableAPITeamDeletion": false,
+    "EnableAPIChannelDeletion": false,
+    "RestrictPostDelete": "all",
+    "AllowEditPost": "always",
+    "PostEditTimeLimit": -1,
+    "EnableReactionEmoji": true,
+    "EnableCustomEmoji": true,
+    "EnableLinkPreviews": true,
+    "RestrictLinkPreviews": "",
+    "EnablePermalinkPreviews": true,
+    "WebsocketPort": 80,
+    "WebsocketSecurePort": 443,
+    "AllowCorsFrom": "",
+    "AllowCookiesForSubdomains": false,
+    "CorsExposedHeaders": "",
+    "CorsAllowCredentials": false,
+    "CorsDebug": false,
+    "DisableBotsWhenOwnerIsDeactivated": true,
+    "EnableSharedChannels": false,
+    "EnableRemoteClusterService": false
+  },
+
+  "TeamSettings": {
+    "SiteName": "AgentCompany Chat",
+    "MaxUsersPerTeam": 500,
+    "EnableTeamCreation": false,
+    "EnableUserCreation": true,
+    "EnableOpenServer": false,
+    "EnableUserDeactivation": true,
+    "RestrictCreationToDomains": "",
+    "EnableCustomBrand": false,
+    "CustomBrandText": "",
+    "CustomDescriptionText": "",
+    "RestrictDirectMessage": "any",
+    "EnableXToLeaveChannelsFromLHS": false,
+    "UserStatusAwayTimeout": 300,
+    "MaxChannelsPerTeam": 2000,
+    "MaxNotificationsPerChannel": 1000000,
+    "EnableConfirmNotificationsToChannel": true,
+    "TeammateNameDisplay": "username",
+    "ExperimentalViewArchivedChannels": false,
+    "ExperimentalEnableAutomaticReplies": false,
+    "ExperimentalChannelOrganization": false,
+    "EnableCustomUserStatuses": true,
+    "EnableLastActiveTime": true
+  },
+
+  "SqlSettings": {
+    "DriverName": "postgres",
+    "DataSource": "${MM_SQLSETTINGS_DATASOURCE}",
+    "DataSourceReplicas": [],
+    "DataSourceSearchReplicas": [],
+    "MaxIdleConns": 20,
+    "MaxOpenConns": 300,
+    "Trace": false,
+    "AtRestEncryptKey": "",
+    "QueryTimeout": 30,
+    "DisableDatabaseSearch": false,
+    "MigrationsStatementTimeoutSeconds": 100000
+  },
+
+  "LogSettings": {
+    "EnableConsole": true,
+    "ConsoleLevel": "INFO",
+    "ConsoleJson": true,
+    "EnableColor": false,
+    "EnableFile": true,
+    "FileLevel": "INFO",
+    "FileJson": true,
+    "FileLocation": "",
+    "EnableWebhookDebugging": true,
+    "EnableDiagnostics": false,
+    "EnableSentry": false,
+    "AdvancedLoggingJSON": ""
+  },
+
+  "FileSettings": {
+    "EnableFileAttachments": true,
+    "EnableMobileUpload": true,
+    "EnableMobileDownload": true,
+    "MaxFileSize": 104857600,
+    "MaxImageResolution": 33177600,
+    "MaxImageDecoderConcurrency": -1,
+    "DriverName": "amazons3",
+    "Directory": "/mattermost/data/",
+    "EnablePublicLink": false,
+    "PublicLinkSalt": "",
+    "InitialFont": "nunito-bold.ttf",
+    "AmazonS3AccessKeyId": "${MM_FILESETTINGS_AMAZONS3ACCESSKEYID}",
+    "AmazonS3SecretAccessKey": "${MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY}",
+    "AmazonS3Bucket": "${MM_FILESETTINGS_AMAZONS3BUCKET}",
+    "AmazonS3PathPrefix": "",
+    "AmazonS3Region": "",
+    "AmazonS3Endpoint": "${MM_FILESETTINGS_AMAZONS3ENDPOINT}",
+    "AmazonS3SSL": false,
+    "AmazonS3SignV2": false,
+    "AmazonS3SSE": false,
+    "AmazonS3Trace": false,
+    "AmazonS3RequestTimeoutMilliseconds": 30000
+  },
+
+  "PasswordSettings": {
+    "MinimumLength": 8,
+    "Lowercase": true,
+    "Number": true,
+    "Uppercase": true,
+    "Symbol": false
+  },
+
+  "PrivacySettings": {
+    "ShowEmailAddress": false,
+    "ShowFullName": true
+  },
+
+  "EmailSettings": {
+    "EnableSignUpWithEmail": true,
+    "EnableSignInWithEmail": true,
+    "EnableSignInWithUsername": true,
+    "SendEmailNotifications": false,
+    "UseChannelInEmailNotifications": false,
+    "RequireEmailVerification": false,
+    "FeedbackName": "AgentCompany",
+    "FeedbackEmail": "noreply@agentcompany.local",
+    "ReplyToAddress": "noreply@agentcompany.local",
+    "FeedbackOrganization": "AgentCompany",
+    "EnableSMTPAuth": false,
+    "SMTPUsername": "",
+    "SMTPPassword": "",
+    "SMTPServer": "",
+    "SMTPPort": "587",
+    "SMTPServerTimeout": 10,
+    "ConnectionSecurity": "STARTTLS",
+    "SendPushNotifications": false,
+    "PushNotificationServer": "",
+    "PushNotificationContents": "full",
+    "PushNotificationBuffer": 1000,
+    "EnableEmailBatching": false,
+    "EmailBatchingBufferSize": 256,
+    "EmailBatchingInterval": 30,
+    "EnablePreviewModeBanner": true,
+    "SkipServerCertificateVerification": false,
+    "EmailNotificationContentsType": "full",
+    "LoginButtonColor": "",
+    "LoginButtonBorderColor": "",
+    "LoginButtonTextColor": ""
+  },
+
+  "PluginSettings": {
+    "Enable": true,
+    "EnableUploads": true,
+    "EnableHealthCheck": true,
+    "Directory": "/mattermost/plugins",
+    "ClientDirectory": "/mattermost/client/plugins",
+    "EnableMarketplace": false,
+    "EnableRemoteMarketplace": false,
+    "AutomaticPrepackagedPlugins": false,
+    "RequirePluginSignature": false
+  },
+
+  "ClusterSettings": {
+    "Enable": false
+  },
+
+  "MetricsSettings": {
+    "Enable": false,
+    "BlockProfileRate": 0,
+    "ListenAddress": ":8067"
+  },
+
+  "BleveSettings": {
+    "IndexDir": "/mattermost/bleve-indexes",
+    "EnableIndexing": false,
+    "EnableSearching": false,
+    "EnableAutocomplete": false,
+    "BulkIndexingTimeWindowSeconds": 3600
+  },
+
+  "LocalizationSettings": {
+    "DefaultServerLocale": "en",
+    "DefaultClientLocale": "en",
+    "AvailableLocales": ""
+  },
+
+  "AnnouncementSettings": {
+    "EnableBanner": false,
+    "BannerText": "",
+    "BannerColor": "#f2a93b",
+    "BannerTextColor": "#333333",
+    "AllowBannerDismissal": true,
+    "AdminNoticesEnabled": true,
+    "UserNoticesEnabled": true
+  },
+
+  "ImageProxySettings": {
+    "Enable": false,
+    "ImageProxyType": "local",
+    "RemoteImageProxyURL": "",
+    "RemoteImageProxyOptions": ""
+  },
+
+  "WranglerSettings": {
+    "PermittedWranglerRoles": ["system_admin"],
+    "AllowedEmailDomain": [],
+    "MoveThreadMaxCount": 100,
+    "MoveThreadToAnotherTeamEnable": false,
+    "MoveThreadFromPrivateChannelEnable": false,
+    "MoveThreadFromDirectMessageChannelEnable": false,
+    "MoveThreadFromGroupMessageChannelEnable": false
+  }
+}

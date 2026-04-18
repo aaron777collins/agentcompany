@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Inter font from Google Fonts — self-hosted via CSS @import */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------------------------------------------------------------------------
+ * Base styles — dark mode by default
+ * ---------------------------------------------------------------------------*/
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    /* Smooth scrolling for in-page navigation */
+    scroll-behavior: smooth;
+    /* Prevent layout shift from scrollbar appearing */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-surface text-text-primary font-sans antialiased;
+    /* Prevent mobile tap highlight */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Consistent focus ring — only visible on keyboard navigation */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-surface;
+  }
+
+  /* Remove default focus ring — replaced by :focus-visible above */
+  :focus:not(:focus-visible) {
+    @apply outline-none;
+  }
+
+  /* Custom scrollbar — subtle, matches dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-surface-hover;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-accent/30 text-text-primary;
+  }
+
+  /* Heading hierarchy */
+  h1 { @apply text-2xl font-bold text-text-primary; }
+  h2 { @apply text-xl font-semibold text-text-primary; }
+  h3 { @apply text-base font-semibold text-text-primary; }
+  h4 { @apply text-sm font-semibold text-text-primary; }
+
+  /* Reset <a> inside components — link styles applied explicitly */
+  a {
+    @apply text-inherit no-underline;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Component utilities
+ * ---------------------------------------------------------------------------*/
+@layer components {
+  /* Smooth gradient separator */
+  .gradient-separator {
+    background: linear-gradient(
+      to right,
+      transparent,
+      theme('colors.surface.border'),
+      transparent
+    );
+    height: 1px;
+  }
+
+  /* Glowing card border on hover */
+  .glow-border:hover {
+    box-shadow: 0 0 0 1px theme('colors.accent.DEFAULT') / 40, theme('boxShadow.glow');
+  }
+
+  /* Mono-spaced code block */
+  .code-block {
+    @apply font-mono text-xs bg-surface-3 rounded-lg p-4 text-text-secondary;
+    @apply border border-surface-border overflow-x-auto;
+  }
+
+  /* Page content container — consistent horizontal padding */
+  .page-content {
+    @apply px-6 py-6 max-w-[1400px] mx-auto;
+  }
+
+  /* Empty state styling */
+  .empty-state {
+    @apply flex flex-col items-center justify-center py-16 gap-3 text-center;
+  }
+
+  .empty-state-icon {
+    @apply w-12 h-12 rounded-2xl bg-surface-3 flex items-center justify-center text-text-muted;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Kanban drag-and-drop — iOS momentum scroll fix
+ * ---------------------------------------------------------------------------*/
+.kanban-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * Status dot animation override — reduce motion for accessibility
+ * ---------------------------------------------------------------------------*/
+@media (prefers-reduced-motion: reduce) {
+  .animate-ping,
+  .animate-pulse,
+  .animate-spin {
+    animation: none;
+  }
+}
