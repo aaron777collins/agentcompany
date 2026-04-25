@@ -37,6 +37,7 @@ graph TD
         Keycloak
         Meilisearch
         WebUI
+        Ollama["ollama :11434\n(local LLM)"]
     end
 
     User -->|HTTP/HTTPS| Traefik
@@ -53,6 +54,7 @@ graph TD
     AgentRuntime --> Redis
     AgentRuntime --> Meilisearch
     AgentRuntime --> Keycloak
+    AgentRuntime --> Ollama
     Outline --> Postgres
     Outline --> Redis
     Outline --> MinIO
@@ -71,6 +73,12 @@ graph TD
 | 80 | traefik | 80 | HTTP | Public ingress |
 | 443 | traefik | 443 | HTTPS | Public ingress (TLS) |
 | 8080 | traefik | 8080 | HTTP | Traefik dashboard (dev only) |
+| 11434 (configurable) | ollama | 11434 | HTTP | Ollama REST API (dev only) |
+
+`OLLAMA_PORT` defaults to `11434` and can be changed in `.env`.  The Ollama
+port is intentionally bound to the host during development so you can call the
+API with curl or the Ollama CLI.  Remove the `ports:` entry from
+`docker-compose.yml` (or set `OLLAMA_PORT` to an unused port) in production.
 
 All other service ports are bound only to the internal Docker network and are
 not accessible from the host.  To inspect a service directly during development
@@ -96,6 +104,7 @@ docker compose exec postgres psql -U agentcompany agentcompany_core
 | `mattermost_plugins` | `/mattermost/plugins` | Mattermost server-side plugins |
 | `mattermost_client_plugins` | `/mattermost/client/plugins` | Mattermost client-side plugins |
 | `traefik_certs` | `/certs` | ACME certificate JSON (Let's Encrypt) |
+| `ollama_data` | `/root/.ollama` | Downloaded model weights (can be several GB per model) |
 
 ---
 
@@ -118,7 +127,9 @@ minio ──────────┬─────────────�
 
 meilisearch ───────────────────────────┐
 postgres ──────────────────────────────┤──▶ agent-runtime ──▶ web-ui
-redis ─────────────────────────────────┘
+redis ─────────────────────────────────┘         │
+                                                  │
+ollama ────────────────────────────────────────────┘
 ```
 
 Traefik starts independently and begins routing immediately; it will return 502
@@ -142,11 +153,35 @@ Estimates are for a single-developer / small team deployment.
 | meilisearch | 256 MB | 512 MB | 0.1 – 0.5 core |
 | agent-runtime | 256 MB | 512 MB | 0.2 – 1.0 core |
 | web-ui | 128 MB | 256 MB | 0.1 – 0.3 core |
-| **Total** | **~2.4 GB** | **~5.2 GB** | **~1.5 – 4.1 cores** |
+| ollama (CPU) | 4 GB* | 8 GB* | 4 – 8 cores |
+| **Total (no Ollama)** | **~2.4 GB** | **~5.2 GB** | **~1.5 – 4.1 cores** |
+| **Total (with Ollama, CPU)** | **~6.4 GB** | **~13.2 GB** | **~5.5 – 12.1 cores** |
 
-Minimum recommended host: 4 vCPU, 8 GB RAM, 40 GB SSD.
+*Ollama RAM requirements depend heavily on the model.  `gemma3` requires ~5 GB
+of RAM on CPU.  With an NVIDIA GPU the model is loaded into VRAM and CPU RAM
+usage drops significantly.
+
+Minimum recommended host (without Ollama): 4 vCPU, 8 GB RAM, 40 GB SSD.
+
+Minimum recommended host (with Ollama + gemma3, CPU-only): 8 vCPU, 16 GB RAM, 60 GB SSD.
 
 For a full team (10–50 users) with Plane also running: 8 vCPU, 16 GB RAM, 100 GB SSD.
+
+### GPU requirements for Ollama
+
+Ollama supports NVIDIA GPUs via the NVIDIA Container Toolkit.  GPU inference is
+optional — the service falls back to CPU if no GPU is detected.
+
+| Setup | Configuration |
+|-------|--------------|
+| No GPU (default) | `docker-compose.override.yml` strips the `deploy.resources` GPU reservation. No extra setup needed. |
+| NVIDIA GPU | Remove or rename `docker-compose.override.yml`.  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) on the host. |
+
+After starting with GPU support, verify Ollama sees the GPU:
+```bash
+docker compose exec ollama ollama run gemma3 "Hello"
+docker compose exec ollama nvidia-smi
+```
 
 ---
 

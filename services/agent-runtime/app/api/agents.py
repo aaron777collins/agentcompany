@@ -4,12 +4,13 @@ Full lifecycle management for Agent resources: CRUD plus start/stop/trigger.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
-from app.dependencies import DBSession, OrgAdmin, OrgMember, Pagination
+from app.dependencies import DBSession, EngineService, OrgAdmin, OrgMember, Pagination
+from app.engine.engine_service import EngineError
 from app.models.agent import Agent
 from app.schemas.agent import (
     AgentCreate,
@@ -45,7 +46,9 @@ async def create_agent(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"An agent with slug '{body.slug}' already exists in company '{body.company_id}'",
+            detail=(
+                f"An agent with slug '{body.slug}' already exists in company '{body.company_id}'"
+            ),
         )
 
     agent = Agent(
@@ -92,13 +95,9 @@ async def list_agents(
     if agent_status:
         query = query.where(Agent.status == agent_status)
 
-    total: int = await db.scalar(
-        select(func.count()).select_from(query.subquery())
-    ) or 0
+    total: int = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = await db.scalars(
-        query.order_by(Agent.created_at.desc())
-        .limit(pagination.limit)
-        .offset(pagination.offset)
+        query.order_by(Agent.created_at.desc()).limit(pagination.limit).offset(pagination.offset)
     )
     items = [AgentRead.model_validate(a) for a in rows]
     return make_list_response(items, total, pagination.limit, pagination.offset)
@@ -181,6 +180,7 @@ async def start_agent(
     agent_id: str,
     db: DBSession,
     claims: OrgAdmin,
+    engine: EngineService,
 ) -> dict:
     agent = await _get_or_404(db, agent_id, claims.org_id)
     if agent.status == "active":
@@ -194,27 +194,34 @@ async def start_agent(
             detail="Agent is in an error state. Resolve the error before starting.",
         )
 
+    # Stage the status optimistically; the engine finalises it to 'active'.
     agent.status = "starting"
     agent.version += 1
     await db.flush()
 
-    # TODO(ticket: AC-ENGINE-01): Dispatch to the AgentManager so the engine
-    # actually activates the agent loop.  Once the engine is wired into
-    # app.state during lifespan startup, replace the block below with:
-    #
-    #   from app.engine.agent_manager import AgentManager
-    #   manager: AgentManager = request.app.state.agent_manager
-    #   await manager.activate(agent_id, triggered_by=claims.sub)
-    #
-    # The AgentManager.activate() call registers the heartbeat service and
-    # transitions the DB state from CONFIGURED -> ACTIVE via _transition().
+    try:
+        await engine.start_agent(
+            agent_id=agent_id,
+            db=db,
+            triggered_by=claims.sub,
+        )
+    except EngineError as exc:
+        # Revert the DB status so the record is not left stuck in 'starting'.
+        agent.status = "idle"
+        agent.version += 1
+        await db.flush()
+        logger.error("Engine failed to start agent %s: %s", agent_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent engine error: {exc}",
+        ) from exc
 
-    logger.info("Agent start requested: %s", agent_id)
+    logger.info("Agent started: %s (triggered_by=%s)", agent_id, claims.sub)
     return {
         "data": {
             "agent_id": agent_id,
-            "status": "starting",
-            "message": "Agent is starting. Subscribe to /api/v1/events/stream for status updates.",
+            "status": "active",
+            "message": "Agent is active. Subscribe to /api/v1/events/stream for status updates.",
         }
     }
 
@@ -229,6 +236,7 @@ async def stop_agent(
     body: AgentStopRequest,
     db: DBSession,
     claims: OrgAdmin,
+    engine: EngineService,
 ) -> dict:
     agent = await _get_or_404(db, agent_id, claims.org_id)
     if agent.status not in ("active", "starting"):
@@ -237,16 +245,40 @@ async def stop_agent(
             detail=f"Cannot stop an agent with status '{agent.status}'",
         )
 
+    previous_status = agent.status
     agent.status = "stopping" if body.drain else "idle"
     agent.version += 1
     await db.flush()
 
-    logger.info("Agent stop requested: %s (drain=%s)", agent_id, body.drain)
+    try:
+        await engine.stop_agent(
+            agent_id=agent_id,
+            db=db,
+            drain=body.drain,
+            reason=body.reason,
+            triggered_by=claims.sub,
+        )
+    except EngineError as exc:
+        # Revert so the agent is not left in a phantom 'stopping' status.
+        agent.status = previous_status
+        agent.version += 1
+        await db.flush()
+        logger.error("Engine failed to stop agent %s: %s", agent_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent engine error: {exc}",
+        ) from exc
+
+    logger.info("Agent stopped: %s (drain=%s, triggered_by=%s)", agent_id, body.drain, claims.sub)
     return {
         "data": {
             "agent_id": agent_id,
             "status": agent.status,
-            "message": "Agent is stopping." if body.drain else "Agent stopped immediately.",
+            "message": (
+                "Agent is draining and will stop soon."
+                if body.drain
+                else "Agent stopped immediately."
+            ),
         }
     }
 
@@ -261,6 +293,7 @@ async def trigger_agent(
     body: AgentTriggerRequest,
     db: DBSession,
     claims: OrgMember,
+    engine: EngineService,
 ) -> dict:
     agent = await _get_or_404(db, agent_id, claims.org_id)
     if agent.status not in ("idle", "active"):
@@ -269,41 +302,52 @@ async def trigger_agent(
             detail=f"Cannot trigger an agent with status '{agent.status}'",
         )
 
-    agent.last_active_at = datetime.now(timezone.utc)
+    agent.last_active_at = datetime.now(UTC)
     await db.flush()
 
-    # TODO(ticket: AC-ENGINE-01): Dispatch the trigger to the AgentManager so
-    # the engine runs the decision loop for this specific task.  Example:
-    #
-    #   from app.engine.agent_manager import AgentManager
-    #   manager: AgentManager = request.app.state.agent_manager
-    #   await manager.mark_running(agent_id, run_id=f"trigger_{body.task_id}")
-    #
-    # The AgentManager.mark_running() call transitions ACTIVE -> RUNNING so
-    # the agent loop knows a run is in flight.  The agent loop itself should
-    # be dispatched via the event bus so it executes in its own task:
-    #
-    #   await request.app.state.event_bus.publish(
-    #       agent.company_id,
-    #       {"type": "agent.trigger", "agent_id": agent_id, "task_id": body.task_id,
-    #        "priority": body.priority, "context": body.context},
-    #   )
+    # Build the event payload to enqueue to Redis Streams.
+    event_data = {
+        "type": "agent.trigger",
+        "agent_id": agent_id,
+        "task_id": body.task_id,
+        "priority": body.priority,
+        "context": body.context,
+    }
+
+    try:
+        trigger_id = await engine.trigger_agent(
+            agent_id=agent_id,
+            db=db,
+            event_data=event_data,
+            triggered_by=claims.sub,
+        )
+    except EngineError as exc:
+        logger.error("Engine failed to enqueue trigger for agent %s: %s", agent_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent engine error: {exc}",
+        ) from exc
 
     logger.info(
-        "Agent manually triggered: %s (task=%s, priority=%s)",
-        agent_id, body.task_id, body.priority,
+        "Agent manually triggered: %s (task=%s, priority=%s, trigger_id=%s)",
+        agent_id,
+        body.task_id,
+        body.priority,
+        trigger_id,
     )
     return {
         "data": {
             "agent_id": agent_id,
             "triggered": True,
             "task_id": body.task_id,
+            "trigger_id": trigger_id,
             "message": "Trigger queued. The agent will pick it up shortly.",
         }
     }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 async def _get_or_404(db: DBSession, agent_id: str, org_id: str) -> Agent:
     agent = await db.scalar(

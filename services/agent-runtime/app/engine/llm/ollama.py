@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from app.config import get_settings
 from .openai import OpenAIAdapter
 from .types import LLMChunk, LLMResponse, ToolDefinition
 
@@ -26,25 +27,43 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CONTEXT_WINDOW = 8_192
 
 
+def _default_base_url() -> str:
+    """Return the Ollama base URL from settings, appending the /v1 OpenAI path.
+
+    Resolved lazily so tests can override settings without import-time side effects.
+    """
+    return f"{get_settings().ollama_base_url}/v1"
+
+
+def _default_model() -> str:
+    """Return the default Ollama model name from settings."""
+    return get_settings().ollama_default_model
+
+
 class OllamaAdapter(OpenAIAdapter):
     """
     Adapter for models served by a local Ollama instance.
 
-    Defaults to http://localhost:11434/v1 but this can be overridden to
-    point at a remote Ollama server.
+    The default base URL and model are read from application settings so they
+    can be controlled via environment variables (OLLAMA_BASE_URL, OLLAMA_MODEL)
+    without code changes.  Pass explicit values to override for a specific agent.
     """
 
     def __init__(
         self,
-        base_url: str = "http://localhost:11434/v1",
-        model: str = "llama3.2",
+        base_url: str | None = None,
+        model: str | None = None,
         context_window: int = _DEFAULT_CONTEXT_WINDOW,
     ) -> None:
-        if not model:
+        resolved_base_url = base_url if base_url is not None else _default_base_url()
+        resolved_model = model if model is not None else _default_model()
+
+        if not resolved_model:
             raise ValueError("Model name must not be empty")
 
-        # Ollama does not require a real API key; any non-empty string works
-        super().__init__(api_key="ollama", model=model, base_url=base_url)
+        # Ollama does not require a real API key; any non-empty string satisfies
+        # the OpenAI client's validation without sending an Authorization header.
+        super().__init__(api_key="ollama", model=resolved_model, base_url=resolved_base_url)
         self._context_window = context_window
 
     def name(self) -> str:

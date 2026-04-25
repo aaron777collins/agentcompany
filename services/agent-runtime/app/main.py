@@ -12,8 +12,8 @@ Concurrency is handled entirely by asyncio.  See agent-runtime.md § Deployment.
 
 import logging
 import logging.config
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
@@ -24,6 +24,7 @@ from app.api.router import api_router, webhooks_router
 from app.config import get_settings
 from app.core.database import close_db, init_db
 from app.core.events import init_event_bus
+from app.engine.engine_service import AgentEngineService
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +78,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.event_bus = event_bus
     logger.info("Event bus initialised")
 
+    # ── Agent engine ───────────────────────────────────────────────────────────
+    # HeartbeatService requires an APScheduler instance.  The scheduler is not
+    # yet wired into lifespan (Phase 3 work), so we start the engine service
+    # without it.  Heartbeat registration is a graceful no-op when the
+    # scheduler is absent — manual triggers still work via Redis Streams.
+    agent_manager = AgentEngineService(
+        heartbeat_service=None,  # wired in Phase 3 when APScheduler is added
+        event_bus=event_bus,
+    )
+    app.state.agent_manager = agent_manager
+    logger.info("Agent engine service initialised")
+
     yield
 
     # ── Shutdown ───────────────────────────────────────────────────────────────
     logger.info("Agent Runtime shutting down")
+    await agent_manager.shutdown()
     await redis_client.aclose()
     await close_db()
     logger.info("Shutdown complete")

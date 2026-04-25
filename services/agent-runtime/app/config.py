@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     mattermost_base_url: str = ""
     outline_base_url: str = ""
 
+    # ── Ollama (local LLM inference) ───────────────────────────────────────────
+    # Points at the Ollama container on the internal Docker network by default.
+    # Override with OLLAMA_BASE_URL env var for external or remote Ollama instances.
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_default_model: str = "gemma3"
+
     @property
     def jwks_uri(self) -> str:
         return (

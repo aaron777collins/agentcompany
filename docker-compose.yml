@@ -34,6 +34,7 @@ volumes:
   mattermost_plugins:
   mattermost_client_plugins:
   traefik_certs:
+  ollama_data:
 
 ###############################################################################
 # Services
@@ -372,6 +373,34 @@ services:
       - "traefik.http.middlewares.meilisearch-strip.stripprefix.prefixes=/search"
 
   # ---------------------------------------------------------------------------
+  # Ollama — Local LLM inference server (serves gemma3 and embedding models)
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: agentcompany-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    networks:
+      - internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # GPU is optional — remove deploy.resources if no GPU available,
+    # or use docker-compose.override.yml for CPU-only development.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Agent Runtime — Custom FastAPI service (built from ./services/agent-runtime)
   # ---------------------------------------------------------------------------
   agent-runtime:
@@ -393,12 +422,15 @@ services:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SECRET_KEY: ${AGENT_RUNTIME_SECRET_KEY:?AGENT_RUNTIME_SECRET_KEY must be set}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     networks:
       - internal
