@@ -1,0 +1,105 @@
+# Optional monitoring stack for AgentCompany.
+#
+# Usage — overlay on top of the main compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up
+#
+# This adds Prometheus and Grafana to the existing internal/external networks
+# defined in docker-compose.yml.  Neither service is given an external port by
+# default; they are instead reachable via Traefik at:
+#   http://localhost/prometheus/
+#   http://localhost/grafana/
+#
+# For direct local access during development you can override with:
+#   PROMETHEUS_PORT=9090 GRAFANA_PORT=3001 docker compose ...
+#
+# Security: Grafana admin credentials must be set via environment variables.
+# Never use the default admin/admin in any environment beyond a local sandbox.
+
+version: "3.9"
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — metrics collection and storage
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: agentcompany-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      # Retain 15 days of metrics.  Increase for longer trend analysis.
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      # Serve under /prometheus/ so Traefik can route without a port conflict.
+      - "--web.route-prefix=/prometheus"
+      - "--web.external-url=http://localhost/prometheus"
+    networks:
+      - internal
+      - external
+    ports:
+      - "${PROMETHEUS_PORT:-}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/prometheus/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.prometheus.rule=PathPrefix(`/prometheus`)"
+      - "traefik.http.routers.prometheus.service=prometheus-svc"
+      - "traefik.http.services.prometheus-svc.loadbalancer.server.port=9090"
+
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboards and alerting
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: agentcompany-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Disable telemetry and update checks for air-gapped environments.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_LOG_LEVEL: info
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Provisioning — datasource and dashboard configs loaded at startup.
+      - ./configs/grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./configs/grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      # Dashboard JSON files.
+      - ./configs/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    ports:
+      - "${GRAFANA_PORT:-}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.service=grafana-svc"
+      - "traefik.http.services.grafana-svc.loadbalancer.server.port=3000"

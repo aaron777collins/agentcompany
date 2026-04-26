@@ -1,0 +1,20 @@
+# Grafana datasource provisioning — automatically configures Prometheus.
+#
+# Grafana reads this file on startup.  The datasource UID "prometheus-agentcompany"
+# is referenced by the pre-built dashboard JSON so the two files must stay in sync.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus-agentcompany
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      # Align Grafana's scrape interval with prometheus.yml global.scrape_interval
+      # so instant queries resolve correctly.
+      timeInterval: "15s"

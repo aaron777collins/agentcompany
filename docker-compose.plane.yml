@@ -1,0 +1,335 @@
+version: "3.9"
+
+# docker-compose.plane.yml — Plane sidecar for AgentCompany
+#
+# This file is overlaid onto the main stack:
+#   docker compose -f docker-compose.yml -f docker-compose.plane.yml up
+#
+# Plane shares the agentcompany PostgreSQL instance (separate `plane` database),
+# the agentcompany Redis instance, and the agentcompany MinIO instance.
+# It does NOT use its own DB, Redis, or MinIO containers — those are omitted
+# intentionally to avoid resource duplication and simplify backup/restore.
+#
+# A RabbitMQ container is still required because Plane's Celery workers rely on
+# it for task queuing and there is no shared equivalent in the base stack.
+
+###############################################################################
+# Volumes (Plane-scoped)
+###############################################################################
+volumes:
+  plane_rabbitmq_data:
+
+###############################################################################
+# Services
+###############################################################################
+services:
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Plane's Celery task broker
+  # We cannot reuse Redis for this because Plane's Celery config expects a
+  # RabbitMQ AMQP URL in production mode.
+  # ---------------------------------------------------------------------------
+  plane-mq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: agentcompany-plane-mq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${PLANE_RABBITMQ_USER:-plane}
+      RABBITMQ_DEFAULT_PASS: ${PLANE_RABBITMQ_PASSWORD:?PLANE_RABBITMQ_PASSWORD must be set}
+      RABBITMQ_DEFAULT_VHOST: ${PLANE_RABBITMQ_VHOST:-plane}
+    volumes:
+      - plane_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Plane migrator — runs Django migrations then exits (one-shot)
+  # Must complete before api, worker, and beat-worker start.
+  # ---------------------------------------------------------------------------
+  plane-migrator:
+    image: makeplane/plane-backend:stable
+    container_name: agentcompany-plane-migrator
+    restart: "no"
+    command: ./bin/docker-entrypoint-migrator.sh
+    environment:
+      # Shared PostgreSQL — dedicated `plane` database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentcompany}:${POSTGRES_PASSWORD}@postgres:5432/plane
+      # Shared Redis (no auth prefix used by Plane's redis client)
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      # RabbitMQ
+      RABBITMQ_HOST: plane-mq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${PLANE_RABBITMQ_USER:-plane}
+      RABBITMQ_PASSWORD: ${PLANE_RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${PLANE_RABBITMQ_VHOST:-plane}
+      # Shared MinIO
+      USE_MINIO: "1"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-agentcompany}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_BUCKET_NAME: ${PLANE_S3_BUCKET:-plane-uploads}
+      AWS_REGION: us-east-1
+      DOCKERIZED: "1"
+      SECRET_KEY: ${PLANE_SECRET_KEY:?PLANE_SECRET_KEY must be set}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
+  # Plane API — Django backend
+  # ---------------------------------------------------------------------------
+  plane-api:
+    image: makeplane/plane-backend:stable
+    container_name: agentcompany-plane-api
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-api.sh
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentcompany}:${POSTGRES_PASSWORD}@postgres:5432/plane
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      RABBITMQ_HOST: plane-mq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${PLANE_RABBITMQ_USER:-plane}
+      RABBITMQ_PASSWORD: ${PLANE_RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${PLANE_RABBITMQ_VHOST:-plane}
+      USE_MINIO: "1"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-agentcompany}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_BUCKET_NAME: ${PLANE_S3_BUCKET:-plane-uploads}
+      AWS_REGION: us-east-1
+      SECRET_KEY: ${PLANE_SECRET_KEY:?PLANE_SECRET_KEY must be set}
+      DEBUG: "0"
+      DOCKERIZED: "1"
+      GUNICORN_WORKERS: ${PLANE_GUNICORN_WORKERS:-2}
+      # Base URLs for cross-service redirects — must be publicly reachable paths
+      WEB_URL: ${PLANE_WEB_URL:-http://localhost/plane}
+      ADMIN_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane/god-mode
+      ADMIN_BASE_PATH: /god-mode
+      SPACE_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane/spaces
+      SPACE_BASE_PATH: /spaces
+      APP_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane
+      CORS_ALLOWED_ORIGINS: ${PLANE_CORS_ORIGINS:-http://localhost,http://localhost:3000}
+    depends_on:
+      plane-migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/api/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.plane-api.rule=PathPrefix(`/plane/api`) || PathPrefix(`/plane/auth`)"
+      - "traefik.http.routers.plane-api.service=plane-api-svc"
+      - "traefik.http.services.plane-api-svc.loadbalancer.server.port=8000"
+
+  # ---------------------------------------------------------------------------
+  # Plane Worker — Celery background worker
+  # ---------------------------------------------------------------------------
+  plane-worker:
+    image: makeplane/plane-backend:stable
+    container_name: agentcompany-plane-worker
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-worker.sh
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentcompany}:${POSTGRES_PASSWORD}@postgres:5432/plane
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      RABBITMQ_HOST: plane-mq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${PLANE_RABBITMQ_USER:-plane}
+      RABBITMQ_PASSWORD: ${PLANE_RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${PLANE_RABBITMQ_VHOST:-plane}
+      USE_MINIO: "1"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-agentcompany}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_BUCKET_NAME: ${PLANE_S3_BUCKET:-plane-uploads}
+      AWS_REGION: us-east-1
+      SECRET_KEY: ${PLANE_SECRET_KEY:?PLANE_SECRET_KEY must be set}
+      DOCKERIZED: "1"
+    depends_on:
+      plane-api:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
+  # Plane Beat — Celery periodic task scheduler
+  # ---------------------------------------------------------------------------
+  plane-beat:
+    image: makeplane/plane-backend:stable
+    container_name: agentcompany-plane-beat
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-beat.sh
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentcompany}:${POSTGRES_PASSWORD}@postgres:5432/plane
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      RABBITMQ_HOST: plane-mq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${PLANE_RABBITMQ_USER:-plane}
+      RABBITMQ_PASSWORD: ${PLANE_RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${PLANE_RABBITMQ_VHOST:-plane}
+      SECRET_KEY: ${PLANE_SECRET_KEY:?PLANE_SECRET_KEY must be set}
+      DOCKERIZED: "1"
+    depends_on:
+      plane-api:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
+  # Plane Web — Next.js frontend
+  # ---------------------------------------------------------------------------
+  plane-web:
+    image: makeplane/plane-frontend:stable
+    container_name: agentcompany-plane-web
+    restart: unless-stopped
+    # The frontend reads NEXT_PUBLIC_* vars at build time; these are runtime
+    # equivalents that the server-side rendering layer uses.
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane
+      NEXT_PUBLIC_SPACE_BASE_PATH: /spaces
+      NEXT_PUBLIC_ADMIN_BASE_PATH: /god-mode
+      NEXT_PUBLIC_ADMIN_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane
+    depends_on:
+      plane-api:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.plane-web.rule=PathPrefix(`/plane`)"
+      - "traefik.http.routers.plane-web.service=plane-web-svc"
+      - "traefik.http.services.plane-web-svc.loadbalancer.server.port=3000"
+      - "traefik.http.routers.plane-web.middlewares=plane-strip"
+      - "traefik.http.middlewares.plane-strip.stripprefix.prefixes=/plane"
+
+  # ---------------------------------------------------------------------------
+  # Plane Space — Public read-only board viewer
+  # ---------------------------------------------------------------------------
+  plane-space:
+    image: makeplane/plane-space:stable
+    container_name: agentcompany-plane-space
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane
+    depends_on:
+      plane-api:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.plane-space.rule=PathPrefix(`/plane/spaces`)"
+      - "traefik.http.routers.plane-space.service=plane-space-svc"
+      - "traefik.http.services.plane-space-svc.loadbalancer.server.port=3002"
+      - "traefik.http.routers.plane-space.middlewares=plane-space-strip"
+      - "traefik.http.middlewares.plane-space-strip.stripprefix.prefixes=/plane/spaces"
+
+  # ---------------------------------------------------------------------------
+  # Plane Admin — God-mode Django admin panel
+  # ---------------------------------------------------------------------------
+  plane-admin:
+    image: makeplane/plane-admin:stable
+    container_name: agentcompany-plane-admin
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${PLANE_BASE_URL:-http://localhost}/plane
+    depends_on:
+      plane-api:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=agentcompany_external"
+      - "traefik.http.routers.plane-admin.rule=PathPrefix(`/plane/god-mode`)"
+      - "traefik.http.routers.plane-admin.service=plane-admin-svc"
+      - "traefik.http.services.plane-admin-svc.loadbalancer.server.port=3001"
+      - "traefik.http.routers.plane-admin.middlewares=plane-admin-strip"
+      - "traefik.http.middlewares.plane-admin-strip.stripprefix.prefixes=/plane/god-mode"
+
+  # ---------------------------------------------------------------------------
+  # MinIO bucket init for Plane (one-shot, extends base minio-init pattern)
+  # Creates the plane-uploads bucket if it does not already exist.
+  # ---------------------------------------------------------------------------
+  plane-minio-init:
+    image: minio/mc:RELEASE.2024-01-16T16-07-38Z
+    container_name: agentcompany-plane-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-agentcompany}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+      PLANE_BUCKET: ${PLANE_S3_BUCKET:-plane-uploads}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+        mc mb --ignore-existing local/$$PLANE_BUCKET &&
+        mc anonymous set download local/$$PLANE_BUCKET &&
+        echo 'Plane MinIO bucket initialised'
+      "
+    networks:
+      - internal

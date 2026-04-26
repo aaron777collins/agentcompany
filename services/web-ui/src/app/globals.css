@@ -13,30 +13,47 @@
     color-scheme: dark;
   }
 
+  /* Light mode overrides — applied when .dark class is removed from <html>.
+   * We override the Tailwind design tokens so every component picks them up
+   * without any additional changes. */
+  html:not(.dark) {
+    color-scheme: light;
+
+    /* Surface tokens → light equivalents */
+    --color-surface: theme('colors.slate.50');
+    --color-surface-1: #ffffff;
+    --color-surface-2: theme('colors.slate.100');
+    --color-surface-3: theme('colors.slate.200');
+    --color-surface-4: theme('colors.slate.300');
+    --color-surface-border: theme('colors.slate.200');
+    --color-surface-hover: theme('colors.slate.300');
+
+    /* Text tokens */
+    --color-text-primary: theme('colors.slate.900');
+    --color-text-secondary: theme('colors.slate.600');
+    --color-text-muted: theme('colors.slate.400');
+    --color-text-disabled: theme('colors.slate.300');
+  }
+
   html {
-    /* Smooth scrolling for in-page navigation */
     scroll-behavior: smooth;
-    /* Prevent layout shift from scrollbar appearing */
     scrollbar-gutter: stable;
   }
 
   body {
     @apply bg-surface text-text-primary font-sans antialiased;
-    /* Prevent mobile tap highlight */
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Consistent focus ring — only visible on keyboard navigation */
   :focus-visible {
     @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-surface;
   }
 
-  /* Remove default focus ring — replaced by :focus-visible above */
   :focus:not(:focus-visible) {
     @apply outline-none;
   }
 
-  /* Custom scrollbar — subtle, matches dark theme */
+  /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -51,18 +68,15 @@
     @apply bg-surface-hover;
   }
 
-  /* Selection color */
   ::selection {
     @apply bg-accent/30 text-text-primary;
   }
 
-  /* Heading hierarchy */
   h1 { @apply text-2xl font-bold text-text-primary; }
   h2 { @apply text-xl font-semibold text-text-primary; }
   h3 { @apply text-base font-semibold text-text-primary; }
   h4 { @apply text-sm font-semibold text-text-primary; }
 
-  /* Reset <a> inside components — link styles applied explicitly */
   a {
     @apply text-inherit no-underline;
   }
@@ -72,7 +86,6 @@
  * Component utilities
  * ---------------------------------------------------------------------------*/
 @layer components {
-  /* Smooth gradient separator */
   .gradient-separator {
     background: linear-gradient(
       to right,
@@ -83,23 +96,19 @@
     height: 1px;
   }
 
-  /* Glowing card border on hover */
   .glow-border:hover {
     box-shadow: 0 0 0 1px theme('colors.accent.DEFAULT') / 40, theme('boxShadow.glow');
   }
 
-  /* Mono-spaced code block */
   .code-block {
     @apply font-mono text-xs bg-surface-3 rounded-lg p-4 text-text-secondary;
     @apply border border-surface-border overflow-x-auto;
   }
 
-  /* Page content container — consistent horizontal padding */
   .page-content {
-    @apply px-6 py-6 max-w-[1400px] mx-auto;
+    @apply px-4 sm:px-6 py-6 max-w-[1400px] mx-auto;
   }
 
-  /* Empty state styling */
   .empty-state {
     @apply flex flex-col items-center justify-center py-16 gap-3 text-center;
   }
@@ -118,12 +127,32 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Status dot animation override — reduce motion for accessibility
+ * Shimmer animation for skeleton blocks — more visually polished than pulse
+ * ---------------------------------------------------------------------------*/
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    theme('colors.surface.3') 25%,
+    theme('colors.surface.4') 50%,
+    theme('colors.surface.3') 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduce motion — accessibility override
  * ---------------------------------------------------------------------------*/
 @media (prefers-reduced-motion: reduce) {
   .animate-ping,
   .animate-pulse,
-  .animate-spin {
+  .animate-spin,
+  .animate-shimmer {
     animation: none;
   }
 }

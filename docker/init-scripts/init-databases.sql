@@ -28,12 +28,18 @@ SELECT 'CREATE DATABASE keycloak'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'keycloak')
 \gexec
 
+-- Plane project management (sidecar — only created when plane compose is used)
+SELECT 'CREATE DATABASE plane'
+  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'plane')
+\gexec
+
 -- Grant all privileges on each database to the application user.
 -- The \gexec trick above runs the SELECT result as SQL, so direct GRANT
 -- statements are safe here because the databases now exist.
 GRANT ALL PRIVILEGES ON DATABASE outline     TO :POSTGRES_USER;
 GRANT ALL PRIVILEGES ON DATABASE mattermost  TO :POSTGRES_USER;
 GRANT ALL PRIVILEGES ON DATABASE keycloak    TO :POSTGRES_USER;
+GRANT ALL PRIVILEGES ON DATABASE plane       TO :POSTGRES_USER;
 
 -- agentcompany_core already exists (POSTGRES_DB) — grant explicitly for clarity
 GRANT ALL PRIVILEGES ON DATABASE agentcompany_core TO :POSTGRES_USER;
@@ -52,3 +58,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 \connect keycloak
 -- Keycloak manages its own schema; no extensions needed.
+
+\connect plane
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

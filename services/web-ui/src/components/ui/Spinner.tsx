@@ -40,24 +40,61 @@ const Spinner: React.FC<SpinnerProps> = ({ size = 'md', className }) => (
 );
 
 // ---------------------------------------------------------------------------
-// Full-page loading skeleton — used while routes load initial data
+// Full-page skeleton — used while routes are loading initial data.
+// Shows a shimmer skeleton rather than just a spinner for a more polished UX.
 // ---------------------------------------------------------------------------
 
 export const PageSkeleton: React.FC = () => (
-  <div className="flex items-center justify-center h-64 w-full">
-    <div className="flex flex-col items-center gap-3">
-      <Spinner size="lg" />
-      <p className="text-sm text-text-muted animate-pulse">Loading…</p>
+  <div className="page-content space-y-6" aria-busy="true" aria-label="Loading content">
+    {/* Top row */}
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="rounded-xl border border-surface-border bg-surface-1 p-5 space-y-3">
+          <SkeletonBlock className="w-9 h-9 rounded-lg" />
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="h-7 w-16" />
+        </div>
+      ))}
+    </div>
+    {/* Content area */}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 rounded-xl border border-surface-border bg-surface-1 p-5 space-y-3">
+        <SkeletonBlock className="h-4 w-32" />
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <SkeletonBlock className="w-8 h-8 rounded-full shrink-0" />
+            <SkeletonBlock className="flex-1 h-4" />
+            <SkeletonBlock className="w-16 h-6 rounded-full shrink-0" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-surface-border bg-surface-1 p-5 space-y-3">
+        <SkeletonBlock className="h-4 w-24" />
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            <SkeletonBlock className="w-3 h-3 rounded-full shrink-0" />
+            <SkeletonBlock className="flex-1 h-3" />
+          </div>
+        ))}
+      </div>
     </div>
   </div>
 );
 
 // ---------------------------------------------------------------------------
-// Skeleton block — use as placeholder for content while data loads
+// SkeletonBlock — placeholder for any piece of content while loading.
+// Uses shimmer rather than plain pulse for a more refined look.
 // ---------------------------------------------------------------------------
 
-export const SkeletonBlock: React.FC<{ className?: string; style?: React.CSSProperties }> = ({ className, style }) => (
-  <div className={cx('rounded-md bg-surface-3 animate-pulse', className)} style={style} />
+export const SkeletonBlock: React.FC<{
+  className?: string;
+  style?: React.CSSProperties;
+}> = ({ className, style }) => (
+  <div
+    className={cx('rounded-md animate-shimmer', className)}
+    style={style}
+    aria-hidden="true"
+  />
 );
 
 export default Spinner;

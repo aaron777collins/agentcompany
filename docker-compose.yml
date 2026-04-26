@@ -380,8 +380,10 @@ services:
     container_name: agentcompany-ollama
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+    # No host port binding: Ollama has no built-in auth and must only be
+    # reachable by agent-runtime on the internal Docker network.
+    # If you need direct host access during development, add it in
+    # docker-compose.override.yml rather than here.
     networks:
       - internal
     deploy:
@@ -409,6 +411,7 @@ services:
       dockerfile: Dockerfile
     image: agentcompany/agent-runtime:latest
     container_name: agentcompany-agent-runtime
+    entrypoint: ["/app/docker/agent-runtime/entrypoint.sh"]
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-agentcompany}:${POSTGRES_PASSWORD}@postgres:5432/agentcompany_core
@@ -457,6 +460,7 @@ services:
       dockerfile: Dockerfile
     image: agentcompany/web-ui:latest
     container_name: agentcompany-web-ui
+    entrypoint: ["/app/docker/web-ui/entrypoint.sh"]
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${WEB_UI_API_URL:-http://localhost/api}
@@ -484,26 +488,9 @@ services:
       - "traefik.http.services.web-ui-svc.loadbalancer.server.port=3000"
 
   # ---------------------------------------------------------------------------
-  # Plane integration placeholder
+  # Plane — project management (sidecar compose)
   #
-  # Plane ships its own docker-compose with ~15 tightly-coupled services.
-  # The recommended integration approach is to run Plane via its own
-  # docker-compose on the same Docker host, then attach the plane-proxy
-  # container (below) to the external network so Traefik can route to it.
-  #
-  # Steps:
-  #   1. Clone https://github.com/makeplane/plane and follow its setup guide
-  #   2. In its docker-compose.yml change the web container network to include
-  #      agentcompany_external (or use `docker network connect`)
-  #   3. Remove the placeholder below and uncomment the real proxy block
+  # Plane services are defined in docker-compose.plane.yml.
+  # Start the full stack with:
+  #   docker compose -f docker-compose.yml -f docker-compose.plane.yml up
   # ---------------------------------------------------------------------------
-  plane-proxy:
-    image: busybox:1.36
-    container_name: agentcompany-plane-proxy
-    restart: "no"
-    command: >
-      sh -c "echo 'Plane placeholder — see docker-compose.yml comments for integration instructions' && sleep infinity"
-    networks:
-      - external
-    labels:
-      - "traefik.enable=false"

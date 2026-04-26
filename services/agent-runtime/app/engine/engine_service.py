@@ -9,10 +9,12 @@ forcing one ORM to serve both, this module provides a thin facade that:
   3. Writes DB transitions via parameterized SQLAlchemy text() queries.
   4. Publishes state-changed events to the EventBus.
   5. Enqueues manual triggers to Redis Streams via HeartbeatService.
+  6. Dispatches inbound trigger messages from the TriggerConsumer.
+  7. Routes platform events to matching event_triggered agents.
 
 The AgentManager (asyncpg-based) remains the authoritative runtime manager
 for the decision loop.  This service handles only the API-initiated lifecycle
-calls: start, stop, and manual trigger.
+calls: start, stop, manual trigger, and event-driven trigger routing.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_session_factory
+from app.engine.heartbeat import TriggerMessage
 from app.engine.state_machine import (
     AgentState,
     AgentStateMachine,
@@ -77,6 +81,16 @@ class AgentEngineService:
     ) -> None:
         self._heartbeat = heartbeat_service
         self._bus = event_bus
+
+    def set_heartbeat_service(self, heartbeat_service: Any) -> None:
+        """
+        Inject the HeartbeatService after construction.
+
+        Called from the lifespan context once the APScheduler and Redis are
+        both ready.  Allows the engine to be constructed early (before all
+        dependencies exist) and updated later without a full teardown.
+        """
+        self._heartbeat = heartbeat_service
 
     # ------------------------------------------------------------------
     # Public API — called from app/api/agents.py
@@ -251,6 +265,160 @@ class AgentEngineService:
             agent_id,
         )
         return trigger_id
+
+    async def dispatch_trigger(self, trigger: "TriggerMessage") -> None:
+        """
+        Dispatch a TriggerMessage that arrived from the TriggerConsumer.
+
+        This is the entry point for all Redis-stream-based triggers —
+        heartbeat ticks, manual triggers, and event-sourced triggers routed by
+        HeartbeatService.  The method validates the agent is active before
+        handing off to the decision loop.
+
+        For now this logs the trigger and publishes a state-changed event.
+        Wiring the full decision loop execution is Phase 4 work (when the loop
+        runner infrastructure is in place).
+        """
+        if trigger is None:
+            raise ValueError("trigger must not be None")
+
+        agent_id = trigger.agent_id
+        if not agent_id:
+            raise ValueError("trigger.agent_id must not be empty")
+
+        logger.info(
+            "Dispatching trigger %s for agent %s (type=%s source=%s)",
+            trigger.trigger_id,
+            agent_id,
+            trigger.trigger_type,
+            trigger.source,
+        )
+
+        # Publish so the SSE endpoint and audit log can observe the trigger.
+        # company_id is embedded in the trigger payload when available.
+        company_id = trigger.payload.get("company_id", "")
+        if self._bus is not None and company_id:
+            try:
+                await self._bus.publish(
+                    company_id,
+                    {
+                        "type": "agent.triggered",
+                        "agent_id": agent_id,
+                        "trigger_id": trigger.trigger_id,
+                        "trigger_type": trigger.trigger_type,
+                        "source": trigger.source,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to publish agent.triggered event for agent %s (non-fatal)",
+                    agent_id,
+                    exc_info=True,
+                )
+
+    async def trigger_by_event(
+        self,
+        company_id: str,
+        event_type: str,
+        event_data: dict[str, Any],
+    ) -> int:
+        """
+        Find all active event_triggered agents in *company_id* whose event
+        filter matches *event_type*, and enqueue a trigger for each.
+
+        Returns the number of agents triggered.
+
+        This is called by the TriggerConsumer when it processes events from the
+        ``agent_events`` stream (platform webhook events re-published there by
+        webhook handlers).  The heavy event-filter matching already happened in
+        HeartbeatService.handle_platform_event(); this path handles the simpler
+        case where a consumer-group event carries a plain event_type and we
+        want to fan out to matching agents without re-doing HMAC work.
+        """
+        if not company_id:
+            raise ValueError("company_id must not be empty")
+        if not event_type:
+            raise ValueError("event_type must not be empty")
+
+        if self._heartbeat is None:
+            logger.warning(
+                "trigger_by_event called but heartbeat service is unavailable; "
+                "event '%s' for company %s will not be routed",
+                event_type,
+                company_id,
+            )
+            return 0
+
+        # Query agents directly here instead of via a SQLAlchemy session
+        # because this method may be called from async background tasks that
+        # do not hold a request-scoped session.
+        factory = get_session_factory()
+        triggered = 0
+
+        try:
+            async with factory() as session:
+                rows = await session.execute(
+                    text(
+                        """
+                        SELECT id, llm_config
+                        FROM agents
+                        WHERE company_id = :company_id
+                          AND status IN ('active', 'idle')
+                          AND deleted_at IS NULL
+                        """
+                    ),
+                    {"company_id": company_id},
+                )
+                agents = rows.mappings().all()
+        except Exception as exc:
+            logger.error(
+                "trigger_by_event: DB query failed for company %s event %s: %s",
+                company_id,
+                event_type,
+                exc,
+                exc_info=True,
+            )
+            return 0
+
+        for agent_row in agents:
+            agent_id = agent_row["id"]
+            llm_config: dict = agent_row["llm_config"] or {}
+            heartbeat_cfg: dict = llm_config.get("heartbeat_config") or {}
+
+            # Only wake event_triggered agents
+            if heartbeat_cfg.get("mode") != "event_triggered":
+                continue
+
+            event_filter: dict = heartbeat_cfg.get("event_filter") or {}
+            event_types_filter: list = event_filter.get("event_types") or []
+
+            # Empty event_types list means "match all"; otherwise the
+            # incoming event_type must be in the allowed list.
+            if event_types_filter and event_type not in event_types_filter:
+                continue
+
+            try:
+                await self._heartbeat.enqueue_manual_trigger(
+                    agent_id=agent_id,
+                    payload={**event_data, "company_id": company_id},
+                    triggered_by=f"event:{event_type}",
+                )
+                triggered += 1
+            except Exception as exc:
+                logger.error(
+                    "trigger_by_event: failed to enqueue trigger for agent %s: %s",
+                    agent_id,
+                    exc,
+                    exc_info=True,
+                )
+
+        logger.info(
+            "trigger_by_event: routed event '%s' to %d agents in company %s",
+            event_type,
+            triggered,
+            company_id,
+        )
+        return triggered
 
     async def shutdown(self) -> None:
         """

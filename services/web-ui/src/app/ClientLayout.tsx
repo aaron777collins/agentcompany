@@ -11,54 +11,75 @@
  * must be reachable before a session exists.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import CommandPalette from '@/components/layout/CommandPalette';
+import KeyboardShortcuts from '@/components/layout/KeyboardShortcuts';
 import AuthGuard from '@/components/layout/AuthGuard';
+import { ToastProvider } from '@/components/ui/Toast';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useTheme } from '@/hooks/useTheme';
+
+// Inner component has access to router (needed by useKeyboardShortcuts)
+function AppShell({ children }: { children: React.ReactNode }) {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+
+  const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
+  const openShortcutsHelp = useCallback(() => setShortcutsOpen(true), []);
+
+  useKeyboardShortcuts({
+    onOpenCommandPalette: openCommandPalette,
+    onOpenShortcutsHelp: openShortcutsHelp,
+  });
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-surface">
+      <Sidebar
+        onCommandPaletteOpen={openCommandPalette}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+
+      {/* Main content area — offset by icon rail on md, full sidebar on lg */}
+      <main className="flex-1 flex flex-col overflow-hidden md:ml-16 lg:ml-60">
+        <div className="flex-1 overflow-y-auto">
+          {children}
+        </div>
+      </main>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
+
+      <KeyboardShortcuts
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+    </div>
+  );
+}
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const pathname = usePathname();
-
-  // Global Cmd+K / Ctrl+K handler
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-      e.preventDefault();
-      setCommandPaletteOpen((prev) => !prev);
-    }
-  }, []);
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
-
-  // The callback page completes authentication — it must not be guarded.
   const isAuthCallback = pathname === '/auth/callback';
 
   if (isAuthCallback) {
-    // Render without the app shell so the callback page has a clean canvas
-    return <>{children}</>;
+    return (
+      <ToastProvider>
+        {children}
+      </ToastProvider>
+    );
   }
 
   return (
-    <AuthGuard>
-      <div className="flex h-screen overflow-hidden bg-surface">
-        <Sidebar />
-
-        {/* Main content area */}
-        <main className="flex-1 flex flex-col overflow-hidden ml-60">
-          <div className="flex-1 overflow-y-auto">
-            {children}
-          </div>
-        </main>
-
-        <CommandPalette
-          open={commandPaletteOpen}
-          onClose={() => setCommandPaletteOpen(false)}
-        />
-      </div>
-    </AuthGuard>
+    <ToastProvider>
+      <AuthGuard>
+        <AppShell>{children}</AppShell>
+      </AuthGuard>
+    </ToastProvider>
   );
 }

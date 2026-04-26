@@ -12,3 +12,4 @@ python-ulid>=2.2
 meilisearch>=0.31
 python-multipart>=0.0.9
 sse-starlette>=2.0
+apscheduler>=3.10

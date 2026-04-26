@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import { search as searchApi } from '@/lib/api';
 import { cx, debounce, timeAgo } from '@/lib/utils';
-import Spinner from '@/components/ui/Spinner';
+import { SkeletonBlock } from '@/components/ui/Spinner';
 import type { SearchResult, SearchResultType } from '@/lib/types';
 
 type FilterTab = 'all' | 'ticket' | 'document' | 'message';
@@ -24,18 +24,49 @@ const SOURCE_ICONS: Record<string, string> = {
 };
 
 const TYPE_COLORS: Record<SearchResultType, string> = {
-  ticket: 'text-status-pending bg-status-pending/10 border-status-pending/20',
+  ticket:   'text-status-pending bg-status-pending/10 border-status-pending/20',
   document: 'text-accent bg-accent/10 border-accent/20',
-  message: 'text-status-idle bg-status-idle/10 border-status-idle/20',
-  agent: 'text-status-active bg-status-active/10 border-status-active/20',
-  task: 'text-text-secondary bg-surface-3 border-surface-border',
+  message:  'text-status-idle bg-status-idle/10 border-status-idle/20',
+  agent:    'text-status-active bg-status-active/10 border-status-active/20',
+  task:     'text-text-secondary bg-surface-3 border-surface-border',
 };
+
+// Skeleton cards while results are loading
+function SearchSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[...Array(5)].map((_, i) => (
+        <div
+          key={i}
+          className="rounded-xl border border-surface-border bg-surface-1 px-5 py-4"
+        >
+          <div className="flex items-start gap-3">
+            <SkeletonBlock className="w-7 h-7 rounded-lg shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <SkeletonBlock className="h-4 w-48" />
+                <SkeletonBlock className="h-5 w-16 rounded-full" />
+              </div>
+              <SkeletonBlock className="h-3 w-full" />
+              <SkeletonBlock className="h-3 w-3/4" />
+              <div className="flex gap-3 pt-1">
+                <SkeletonBlock className="h-3 w-16" />
+                <SkeletonBlock className="h-3 w-20" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [tookMs, setTookMs] = useState(0);
 
@@ -45,10 +76,12 @@ export default function SearchPage() {
       if (q.trim().length < 2) {
         setResults([]);
         setHasSearched(false);
+        setError(null);
         return;
       }
       setLoading(true);
       setHasSearched(true);
+      setError(null);
       try {
         const res = await searchApi.query({
           q,
@@ -57,8 +90,9 @@ export default function SearchPage() {
         });
         setResults(res.results);
         setTookMs(res.took_ms);
-      } catch {
+      } catch (err) {
         setResults([]);
+        setError(err instanceof Error ? err.message : 'Search failed');
       } finally {
         setLoading(false);
       }
@@ -70,6 +104,8 @@ export default function SearchPage() {
     doSearch(query, activeTab);
   }, [query, activeTab, doSearch]);
 
+  const isMinLength = query.trim().length >= 2;
+
   return (
     <div className="flex flex-col h-full">
       <Header title="Search" />
@@ -79,7 +115,10 @@ export default function SearchPage() {
         <div className="relative">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted">
             {loading ? (
-              <Spinner size="sm" />
+              <svg className="w-5 h-5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
             ) : (
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -99,6 +138,7 @@ export default function SearchPage() {
             <button
               onClick={() => setQuery('')}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+              aria-label="Clear search"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -125,8 +165,8 @@ export default function SearchPage() {
           ))}
         </div>
 
-        {/* Results */}
-        {!hasSearched && (
+        {/* Initial empty state — before any search */}
+        {!hasSearched && !loading && (
           <div className="empty-state py-20">
             <div className="empty-state-icon w-16 h-16">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -143,15 +183,31 @@ export default function SearchPage() {
           </div>
         )}
 
-        {hasSearched && !loading && results.length === 0 && (
+        {/* Loading skeleton */}
+        {loading && isMinLength && <SearchSkeleton />}
+
+        {/* Error state */}
+        {error && hasSearched && !loading && (
+          <div className="rounded-xl border border-status-error/20 bg-status-error/5 px-5 py-6 text-center">
+            <p className="text-sm font-medium text-status-error">Search failed</p>
+            <p className="text-xs text-text-muted mt-1">{error}</p>
+          </div>
+        )}
+
+        {/* No results */}
+        {hasSearched && !loading && !error && results.length === 0 && (
           <div className="text-center py-12">
             <p className="text-sm text-text-muted">
               No results for &quot;{query}&quot;{activeTab !== 'all' ? ` in ${activeTab}s` : ''}
             </p>
+            <p className="text-xs text-text-disabled mt-1">
+              Try a different search term or broaden the filter
+            </p>
           </div>
         )}
 
-        {results.length > 0 && (
+        {/* Results */}
+        {!loading && !error && results.length > 0 && (
           <div>
             <p className="text-xs text-text-muted mb-3">
               {results.length} result{results.length !== 1 ? 's' : ''} · {tookMs}ms
@@ -173,10 +229,10 @@ const SearchResultCard: React.FC<{ result: SearchResult }> = ({ result }) => (
     href={result.url ?? '#'}
     target="_blank"
     rel="noopener noreferrer"
-    className="block rounded-xl border border-surface-border bg-surface-1 px-5 py-4 hover:border-surface-hover hover:shadow-card transition-all"
+    className="block rounded-xl border border-surface-border bg-surface-1 px-5 py-4 hover:border-surface-hover hover:shadow-card transition-all animate-fade-in"
   >
     <div className="flex items-start gap-3">
-      <span className="text-lg mt-0.5">{SOURCE_ICONS[result.source] ?? '🔍'}</span>
+      <span className="text-lg mt-0.5 shrink-0">{SOURCE_ICONS[result.source] ?? '🔍'}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <p className="text-sm font-medium text-text-primary truncate">{result.title}</p>

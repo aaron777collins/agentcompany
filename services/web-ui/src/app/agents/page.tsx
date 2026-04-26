@@ -24,7 +24,7 @@ export default function AgentsPage() {
   const [companyFilter, setCompanyFilter] = useState('');
   const [search, setSearch] = useState('');
 
-  const { agents, loading, total } = useAgents({
+  const { agents, loading, total, error, refetch } = useAgents({
     status: statusFilter || undefined,
     company_id: companyFilter || undefined,
     page_size: 50,
@@ -41,11 +41,13 @@ export default function AgentsPage() {
       )
     : agents;
 
+  const hasFilters = !!(statusFilter || companyFilter || search);
+
   return (
     <div className="flex flex-col h-full">
       <Header
         title="Agents"
-        subtitle={`${total} total`}
+        subtitle={loading ? undefined : `${total} total`}
       />
 
       <div className="page-content space-y-5">
@@ -58,7 +60,8 @@ export default function AgentsPage() {
               onChange={(e) => setSearch(e.target.value)}
               icon={
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               }
             />
@@ -87,7 +90,7 @@ export default function AgentsPage() {
             </select>
           )}
 
-          {(statusFilter || companyFilter || search) && (
+          {hasFilters && (
             <Button
               variant="ghost"
               size="sm"
@@ -98,13 +101,26 @@ export default function AgentsPage() {
           )}
         </div>
 
-        {/* Grid */}
-        {loading ? (
+        {/* Error state */}
+        {error && !loading && (
+          <div className="rounded-xl border border-status-error/20 bg-status-error/5 px-5 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-status-error">Could not load agents</p>
+              <p className="text-xs text-text-muted mt-0.5">{error}</p>
+            </div>
+            <Button variant="danger" size="sm" onClick={refetch}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {/* Skeleton grid */}
+        {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
               <div key={i} className="rounded-xl border border-surface-border bg-surface-1 p-5 space-y-3">
                 <div className="flex items-center gap-3">
-                  <SkeletonBlock className="w-10 h-10 rounded-xl" />
+                  <SkeletonBlock className="w-10 h-10 rounded-xl shrink-0" />
                   <div className="flex-1">
                     <SkeletonBlock className="h-3.5 w-28 mb-1.5" />
                     <SkeletonBlock className="h-3 w-20" />
@@ -115,7 +131,10 @@ export default function AgentsPage() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        )}
+
+        {/* Empty state */}
+        {!loading && !error && filtered.length === 0 && (
           <div className="empty-state">
             <div className="empty-state-icon">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -124,15 +143,29 @@ export default function AgentsPage() {
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-text-primary">No agents found</p>
+              <p className="text-sm font-medium text-text-primary">
+                {hasFilters ? 'No agents match your filters' : 'No agents yet'}
+              </p>
               <p className="text-xs text-text-muted mt-1">
-                {search || statusFilter || companyFilter
-                  ? 'Try adjusting your filters'
-                  : 'No agents have been configured yet'}
+                {hasFilters
+                  ? 'Try adjusting or clearing your filters'
+                  : 'Create your first agent to get started'}
               </p>
             </div>
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setStatusFilter(''); setCompanyFilter(''); setSearch(''); }}
+              >
+                Clear filters
+              </Button>
+            )}
           </div>
-        ) : (
+        )}
+
+        {/* Agent grid */}
+        {!loading && !error && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filtered.map((agent) => (
               <AgentCard key={agent.id} agent={agent} />

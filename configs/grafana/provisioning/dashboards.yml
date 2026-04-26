@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning — loads all JSON dashboards from the dashboards
+# directory at startup.  Dashboards are read-only (disableDeletion: true) so
+# config drift in the UI does not silently diverge from the repository.
+
+apiVersion: 1
+
+providers:
+  - name: "AgentCompany Dashboards"
+    orgId: 1
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

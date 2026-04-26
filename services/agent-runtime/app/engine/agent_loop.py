@@ -31,6 +31,7 @@ from .state_machine import AgentState, AgentStateMachine, InvalidTransitionError
 if TYPE_CHECKING:
     from .llm.base import BaseLLMAdapter
     from .llm.types import LLMResponse, ToolDefinition
+    from .tool_registry import AgentTool, RegistryToolExecutor, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +82,18 @@ class AgentDecisionLoop:
     Orchestrates the observe-think-act-reflect loop for one agent run.
 
     Dependencies are injected so each can be independently tested.
+
+    Two construction paths:
+      1. Direct construction — pass tool_executor (ToolSandbox or
+         RegistryToolExecutor) and build available_tools separately.
+      2. AgentDecisionLoop.from_registry() — pass a ToolRegistry and role;
+         the classmethod builds the executor and LLM tool definitions for you.
     """
 
     def __init__(
         self,
         llm_adapter: "BaseLLMAdapter",
-        tool_executor: Any,         # ToolSandbox or compatible executor
+        tool_executor: Any,         # RegistryToolExecutor or ToolSandbox
         memory: AgentMemory,
         cost_tracker: CostTracker,
         state_machine: AgentStateMachine,
@@ -104,21 +111,69 @@ class AgentDecisionLoop:
         self._ctx_manager = context_manager
         self._max_steps = max_steps
 
+    @classmethod
+    def from_registry(
+        cls,
+        llm_adapter: "BaseLLMAdapter",
+        tool_registry: "ToolRegistry",
+        agent_role: str,
+        memory: AgentMemory,
+        cost_tracker: CostTracker,
+        state_machine: AgentStateMachine,
+        context_manager: ContextWindowManager,
+        max_steps: int = MAX_STEPS_DEFAULT,
+    ) -> "AgentDecisionLoop":
+        """
+        Convenience constructor that builds the tool executor and LLM tool
+        definitions from a ToolRegistry and an agent role string.
+
+        Use this path when constructing the loop from the AgentEngineService
+        or TriggerConsumer so the tool wiring stays in one place.
+        """
+        executor = tool_registry.build_executor()
+        return cls(
+            llm_adapter=llm_adapter,
+            tool_executor=executor,
+            memory=memory,
+            cost_tracker=cost_tracker,
+            state_machine=state_machine,
+            context_manager=context_manager,
+            max_steps=max_steps,
+        )
+
     async def run(
         self,
         agent_id: str,
         company_id: str,
         system_prompt: str,
-        available_tools: list["ToolDefinition"],
+        available_tools: "list[ToolDefinition] | list[AgentTool]",
         trigger: dict[str, Any],
         run_id: Optional[str] = None,
     ) -> LoopResult:
         """
         Execute one complete agent run for a given trigger.
 
+        ``available_tools`` accepts either a list of LLM-layer ToolDefinition
+        objects (the original type) or AgentTool objects from the ToolRegistry.
+        AgentTool instances are converted to ToolDefinition automatically so
+        that callers do not need to perform the conversion themselves.
+
         Returns a LoopResult regardless of outcome — never raises to the caller.
         All exceptions are caught, logged, and reflected in the result.
         """
+        # Convert AgentTool → ToolDefinition if the caller passed AgentTool objects.
+        # We detect the type by checking for the handler attribute which only
+        # AgentTool has; ToolDefinition carries input_schema instead.
+        if available_tools and hasattr(available_tools[0], "handler"):
+            from app.engine.llm.types import ToolDefinition  # deferred import
+            available_tools = [
+                ToolDefinition(
+                    name=t.name,
+                    description=t.description,
+                    input_schema=t.parameters,
+                )
+                for t in available_tools  # type: ignore[union-attr]
+            ]
         rid = run_id or f"run_{uuid.uuid4().hex}"
         context = AgentContext(
             run_id=rid,

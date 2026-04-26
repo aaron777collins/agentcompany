@@ -1,0 +1,40 @@
+# Prometheus scrape configuration for AgentCompany.
+#
+# This file is mounted into the prometheus container at startup.
+# The agent-runtime service name matches the Docker Compose service name so
+# Prometheus can resolve it on the internal Docker network without hardcoding
+# an IP address.
+
+global:
+  scrape_interval: 15s       # How often to scrape each target
+  evaluation_interval: 15s   # How often to evaluate alerting rules
+  scrape_timeout: 10s
+
+# Alerting rules live in separate files and are loaded by the
+# rule_files directive below.  See configs/prometheus/rules/ for examples.
+rule_files: []
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # AgentCompany Runtime
+  # Scrapes the Prometheus text exposition endpoint on the agent-runtime service.
+  # ---------------------------------------------------------------------------
+  - job_name: "agentcompany-runtime"
+    static_configs:
+      - targets:
+          - "agent-runtime:8000"
+        labels:
+          service: "agent-runtime"
+          env: "docker-compose"
+    metrics_path: /metrics
+    # The agent-runtime service sits on the internal Docker network with no
+    # TLS termination — plain HTTP is correct here.
+    scheme: http
+
+  # ---------------------------------------------------------------------------
+  # Prometheus self-scrape — useful for monitoring the monitoring layer
+  # ---------------------------------------------------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "localhost:9090"

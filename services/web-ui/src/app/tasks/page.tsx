@@ -8,8 +8,52 @@ import { useCompanies, useActiveCompany } from '@/hooks/useCompany';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
-import { PageSkeleton } from '@/components/ui/Spinner';
+import { SkeletonBlock } from '@/components/ui/Spinner';
+import { toast } from '@/hooks/useToast';
 import type { Task, TaskPriority } from '@/lib/types';
+
+// ---------------------------------------------------------------------------
+// Kanban loading skeleton — mirrors the column structure
+// ---------------------------------------------------------------------------
+
+function KanbanSkeleton() {
+  return (
+    <div className="flex gap-4 h-full overflow-x-auto pb-4">
+      {[...Array(5)].map((_, col) => (
+        <div
+          key={col}
+          className="flex-shrink-0 w-72 rounded-xl border border-surface-border bg-surface-1 flex flex-col"
+        >
+          {/* Column header */}
+          <div className="px-4 py-3 border-b border-surface-border flex items-center gap-2">
+            <SkeletonBlock className="h-4 w-24" />
+            <SkeletonBlock className="h-5 w-6 rounded-full ml-auto" />
+          </div>
+          {/* Cards */}
+          <div className="flex-1 p-3 space-y-2 overflow-y-auto">
+            {[...Array(col === 2 ? 4 : col === 0 ? 3 : 2)].map((_, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-surface-border bg-surface-2 p-3 space-y-2"
+              >
+                <SkeletonBlock className="h-3.5 w-full" />
+                <SkeletonBlock className="h-3 w-4/5" />
+                <div className="flex items-center gap-2 pt-1">
+                  <SkeletonBlock className="h-5 w-12 rounded-full" />
+                  <SkeletonBlock className="h-5 w-16 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function TasksPage() {
   const { companies } = useCompanies();
@@ -18,16 +62,35 @@ export default function TasksPage() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const fetchTasks = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await tasksApi.list({ company_id: companyId, page_size: 100 });
       setTasks(res.items);
-    } catch {
-      // Show empty board on error
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load tasks';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  const handleRetry = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (!companyId) return;
+      const res = await tasksApi.list({ company_id: companyId, page_size: 100 });
+      setTasks(res.items);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load tasks';
+      setError(msg);
+      toast.error('Could not load tasks', msg);
     } finally {
       setLoading(false);
     }
@@ -41,7 +104,7 @@ export default function TasksPage() {
     <div className="flex flex-col h-full">
       <Header
         title="Task Board"
-        subtitle={`${tasks.length} tasks`}
+        subtitle={loading ? undefined : `${tasks.length} tasks`}
         actions={
           <div className="flex items-center gap-2">
             {companies.length > 1 && (
@@ -69,9 +132,50 @@ export default function TasksPage() {
 
       <div className="flex-1 overflow-hidden px-6 pt-4 pb-6">
         {loading ? (
-          <PageSkeleton />
+          <KanbanSkeleton />
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-full gap-4">
+            <div className="rounded-2xl border border-status-error/20 bg-status-error/5 p-10 text-center max-w-sm w-full space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-status-error/10 flex items-center justify-center mx-auto">
+                <svg className="w-7 h-7 text-status-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-status-error">Could not load tasks</p>
+                <p className="text-xs text-text-muted mt-1.5">{error}</p>
+              </div>
+              <Button variant="danger" size="sm" onClick={handleRetry}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-4">
+            <div className="empty-state">
+              <div className="empty-state-icon w-16 h-16">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-text-primary">No tasks yet</p>
+                <p className="text-xs text-text-muted mt-1">Create your first task to start tracking work</p>
+              </div>
+              {companyId && (
+                <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+                  + Create first task
+                </Button>
+              )}
+            </div>
+          </div>
         ) : (
-          <KanbanBoard initialTasks={tasks} />
+          // Horizontal scroll wrapper for Kanban on small screens
+          <div className="kanban-scroll h-full">
+            <KanbanBoard initialTasks={tasks} />
+          </div>
         )}
       </div>
 
@@ -86,6 +190,10 @@ export default function TasksPage() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Create task modal
+// ---------------------------------------------------------------------------
 
 interface CreateTaskModalProps {
   open: boolean;
@@ -123,13 +231,16 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
         priority,
         status: 'backlog',
       });
+      toast.success('Task created', `"${title.trim()}" added to the backlog`);
       setTitle('');
       setDescription('');
       setPriority('medium');
       setError('');
       onCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create task');
+      const msg = err instanceof Error ? err.message : 'Failed to create task';
+      setError(msg);
+      toast.error('Failed to create task', msg);
     } finally {
       setLoading(false);
     }

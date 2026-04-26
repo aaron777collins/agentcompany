@@ -6,6 +6,9 @@ This package contains everything needed to run AI agents:
   agent_loop.py        Main observe-think-act-reflect decision loop
   agent_manager.py     Agent lifecycle management (create/configure/activate/terminate)
   heartbeat.py         Heartbeat modes, event routing, trigger enqueueing
+  trigger_consumer.py  Redis Streams consumer that dispatches triggers to agents
+  tool_registry.py     Registry of AgentTool instances with role-based access
+  tool_definitions.py  Wires adapter methods to LLM-callable tool definitions
   state_machine.py     State machine with validated transitions
   context_manager.py   Context window management and compaction
   memory.py            Long-term memory backed by pgvector
@@ -17,6 +20,8 @@ Entry points for the runtime layer:
   AgentDecisionLoop   — run one agent invocation
   AgentManager        — manage the agent lifecycle
   HeartbeatService    — route events and ticks to the right agents
+  TriggerConsumer     — consume Redis Streams and dispatch to engine
+  ToolRegistry        — per-company tool registry with role filtering
   CostTracker         — track spend per agent
   AgentMemory         — store and retrieve long-term memories
   ContextWindowManager — compact context when approaching token limits
@@ -41,6 +46,8 @@ from .state_machine import (
     StateTransition,
     VALID_TRANSITIONS,
 )
+from .tool_registry import AgentTool, RegistryToolExecutor, ToolExecutionResult, ToolRegistry
+from .trigger_consumer import TriggerConsumer
 
 __all__ = [
     # Decision loop
@@ -62,6 +69,13 @@ __all__ = [
     "HeartbeatConfig",
     "EventFilter",
     "TriggerMessage",
+    # Trigger consumer
+    "TriggerConsumer",
+    # Tool registry
+    "AgentTool",
+    "ToolRegistry",
+    "RegistryToolExecutor",
+    "ToolExecutionResult",
     # Memory
     "AgentMemory",
     "MemoryEntry",

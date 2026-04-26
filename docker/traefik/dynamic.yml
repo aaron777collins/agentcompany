@@ -72,40 +72,15 @@ http:
   # Routers and services for externally-managed deployments
   ###########################################################################
   routers:
-
-    # -------------------------------------------------------------------------
-    # Plane — project management
-    # Route to the Plane web container.  Assumes it is reachable at
-    # plane-web:3000 on the agentcompany_external Docker network.
-    # This router is disabled until the Plane deployment is active.
-    # -------------------------------------------------------------------------
-    plane:
-      # Uncomment rule and service once Plane is deployed:
-      # rule: "PathPrefix(`/plane`)"
-      # service: plane-svc
-      # middlewares:
-      #   - strip-plane-prefix
-      #   - compress
-      #   - security-headers
-      rule: "PathPrefix(`/plane`) && HeadersRegexp(`X-Plane-Enabled`, `true`)"
-      service: plane-svc
-      middlewares:
-        - compress
-        - security-headers
+    # No file-based routers needed for Plane — all Plane routing is handled
+    # via Docker labels in docker-compose.plane.yml so Traefik picks them up
+    # automatically when that compose file is active.
+    #
+    # Add file-based routers here only for services that live outside of
+    # Docker Compose (e.g. external VMs or bare-metal services).
 
   services:
-
-    # -------------------------------------------------------------------------
-    # Plane service definition — update the URL when Plane is running
-    # -------------------------------------------------------------------------
-    plane-svc:
-      loadBalancer:
-        servers:
-          - url: "http://plane-web:3000"   # replace with actual Plane web container name/IP
-        healthCheck:
-          path: "/"
-          interval: "30s"
-          timeout: "5s"
+    # No file-based services needed — see routers comment above.
 
   ###########################################################################
   # Global middleware chains applied to all routers (optional)
